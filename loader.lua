@@ -1,4 +1,4 @@
--- [[ DIRTANK ULTIMATE ENGINE v61.0 - AIR-SPEED & FOV UPDATE ]] --
+-- [[ DIRTANK ULTIMATE ENGINE v61.6 - MAGNET GUN UPDATE ]] --
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
@@ -18,7 +18,68 @@ getgenv().FPDH = workspace.FallenPartsDestroyHeight
 local FOV_Circle = Drawing.new("Circle")
 FOV_Circle.Thickness, FOV_Circle.Color, FOV_Circle.Transparency = 2, Color3.new(1, 1, 1), 1
 
--- 2. MAGNET KILL (CLICK)
+-- 2. MAGNET GRAB GUN (ПРИТЯГИВАНИЕ)
+local function GrabGun()
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local function FindDroppedGun()
+        for _, v in pairs(workspace:GetDescendants()) do
+            -- Ищем по названию или по наличию "свечения" (SelectionBox/PointLight обычно у выпавшего песта)
+            if v.Name == "Handle" and (v.Parent.Name == "GunDrop" or v.Parent:FindFirstChild("SelectionBox") or v:FindFirstChild("PointLight")) then
+                return v
+            end
+        end
+        return nil
+    end
+
+    local gunHandle = FindDroppedGun()
+    if gunHandle then
+        -- Создаем цикл на 2 секунды, чтобы пистолет "лип" к нам, пока не подберем
+        local startTime = tick()
+        repeat
+            if not gunHandle or not gunHandle.Parent then break end
+            gunHandle.CFrame = hrp.CFrame * CFrame.new(0, 0, -1)
+            gunHandle.Velocity = Vector3.new(0, 0, 0)
+            task.wait()
+        until tick() - startTime > 2 or LP.Backpack:FindFirstChild("Gun") or char:FindFirstChild("Gun")
+    end
+end
+
+-- 3. FLING FUNCTION
+local function SkidFling(TargetPlayer)
+    local Character = LP.Character
+    local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
+    local TCharacter = TargetPlayer.Character
+    local TRootPart = TCharacter and (TCharacter:FindFirstChild("HumanoidRootPart") or TCharacter:FindFirstChild("Head"))
+    
+    if RootPart and TRootPart and FlingActive then
+        local OldCF = RootPart.CFrame
+        workspace.FallenPartsDestroyHeight = 0/0
+        for _, v in pairs(Character:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end
+
+        local BV = Instance.new("BodyVelocity", RootPart)
+        BV.Velocity, BV.MaxForce = Vector3.new(0,0,0), Vector3.new(9e9, 9e9, 9e9)
+        
+        local Time = tick()
+        repeat
+            if not FlingActive or not TargetPlayer.Parent or not TCharacter.Parent then break end
+            RootPart.CFrame = TRootPart.CFrame * CFrame.new(0, 1.5, 0)
+            RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+            RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+            task.wait()
+        until tick() > Time + 1.1 
+        
+        BV:Destroy()
+        RootPart.Velocity, RootPart.RotVelocity = Vector3.new(0,0,0), Vector3.new(0,0,0)
+        if RecallEnabled then RootPart.CFrame = OldCF end
+        task.wait(0.1)
+        workspace.FallenPartsDestroyHeight = getgenv().FPDH
+    end
+end
+
+-- 4. MAGNET KILL
 local function DoMagnetKill()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -30,7 +91,7 @@ local function DoMagnetKill()
             if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                 p.Character.HumanoidRootPart.CFrame = hrp.CFrame * CFrame.new(0, 0, -1.2)
                 p.Character.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
-                 knife:Activate()
+                knife:Activate()
             end
         end
         hrp.Velocity = Vector3.new(0,0,0)
@@ -38,7 +99,7 @@ local function DoMagnetKill()
     end
 end
 
--- 3. ESP & TAGS SYSTEM (MAX SPEED UPDATE)
+-- 5. ESP, TAGS & AIR-SPEED
 RS.Heartbeat:Connect(function()
     if not _G.Dirtank_Active then return end
     for _, p in pairs(Players:GetPlayers()) do
@@ -46,10 +107,8 @@ RS.Heartbeat:Connect(function()
             local char = p.Character
             local head = char:FindFirstChild("Head")
             local color = (char:FindFirstChild("Knife") or p.Backpack:FindFirstChild("Knife")) and Color3.new(1, 0, 0) or (char:FindFirstChild("Gun") or p.Backpack:FindFirstChild("Gun")) and Color3.new(0, 0.6, 1) or Color3.new(1, 1, 1)
-            
             local high = char:FindFirstChild("D_High") or Instance.new("Highlight", char)
-            high.Name = "D_High"; high.FillColor = color; high.FillTransparency = 0.5
-            
+            high.FillColor = color; high.FillTransparency = 0.5
             if head then
                 local tag = head:FindFirstChild("D_Tag") or Instance.new("BillboardGui", head)
                 tag.Name = "D_Tag"; tag.Adornee = head; tag.Size = UDim2.new(0, 100, 0, 50); tag.AlwaysOnTop = true; tag.ExtentsOffset = Vector3.new(0, 3, 0)
@@ -59,30 +118,22 @@ RS.Heartbeat:Connect(function()
             end
         end
     end
-end)
-
--- 4. SPEED LOGIC (JUMP ONLY)
-RS.Heartbeat:Connect(function()
-    if not _G.Dirtank_Active or not BHOP_Enabled or FlingActive then return end
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    
-    if hrp and hum and hum.MoveDirection.Magnitude > 0 then
-        -- ПРОВЕРКА: Если игрок в воздухе (FloorMaterial == Air)
-        if hum.FloorMaterial == Enum.Material.Air then
-            local vel = hum.MoveDirection * SG_Power
-            hrp.AssemblyLinearVelocity = Vector3.new(vel.X, hrp.AssemblyLinearVelocity.Y, vel.Z)
+    -- Speed
+    local lpChar = LP.Character
+    local hum = lpChar and lpChar:FindFirstChildOfClass("Humanoid")
+    local hrp = lpChar and lpChar:FindFirstChild("HumanoidRootPart")
+    if BHOP_Enabled and hrp and hum and hum.MoveDirection.Magnitude > 0 then
+        if hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall then
+            hrp.Velocity = Vector3.new(hum.MoveDirection.X * SG_Power, hrp.Velocity.Y, hum.MoveDirection.Z * SG_Power)
         end
     end
 end)
 
--- 5. AIM & FOV DRAWING
+-- 6. AIM & FOV
 RS.RenderStepped:Connect(function()
     if not _G.Dirtank_Active then return end
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
     FOV_Circle.Position, FOV_Circle.Radius, FOV_Circle.Visible = center, FOV_Radius, FOV_Enabled
-    
     if AimEnabled then
         for _, p in pairs(Players:GetPlayers()) do
             if p ~= LP and p.Character and (p.Backpack:FindFirstChild("Knife") or p.Character:FindFirstChild("Knife")) then
@@ -98,42 +149,13 @@ RS.RenderStepped:Connect(function()
     end
 end)
 
--- 6. FLING
-local function SkidFling(TargetPlayer)
-    local Character = LP.Character
-    local RootPart = Character and Character:FindFirstChild("HumanoidRootPart")
-    local TCharacter = TargetPlayer.Character
-    local TRootPart = TCharacter and (TCharacter:FindFirstChild("HumanoidRootPart") or TCharacter:FindFirstChild("Head"))
-    if RootPart and TRootPart and FlingActive then
-        local OldCF = RootPart.CFrame
-        workspace.FallenPartsDestroyHeight = 0/0
-        local BV = Instance.new("BodyVelocity", RootPart)
-        BV.Velocity, BV.MaxForce = Vector3.new(0,0,0), Vector3.new(9e9, 9e9, 9e9)
-        local Time = tick()
-        repeat
-            if not FlingActive or not TargetPlayer.Parent or not TCharacter.Parent then break end
-            RootPart.CFrame = TRootPart.CFrame * CFrame.new(0, 1.5, 0)
-            RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
-            RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
-            task.wait()
-        until tick() > Time + 1.1 
-        BV:Destroy()
-        RootPart.Velocity, RootPart.RotVelocity = Vector3.new(0,0,0), Vector3.new(0,0,0)
-        if RecallEnabled then RootPart.CFrame = OldCF end
-        task.wait(0.1)
-        workspace.FallenPartsDestroyHeight = getgenv().FPDH
-    end
-end
-
--- 7. GUI (DIRTANK ULTIMATE)
+-- 7. GUI
 local sg = Instance.new("ScreenGui", LP.PlayerGui); sg.Name = "DirtankV60"; sg.ResetOnSpawn = false
 local frame = Instance.new("Frame", sg); frame.Size, frame.Position = UDim2.new(0, 450, 0, 320), UDim2.new(0.5, -225, 0.4, 0)
 frame.BackgroundColor3, frame.Active, frame.Draggable = Color3.fromRGB(20, 20, 20), true, true
 Instance.new("UICorner", frame)
-
-local title = Instance.new("TextLabel", frame); title.Size = UDim2.new(1, 0, 0, 30); title.Text = "DIRTANK ULTIMATE v61.0"
+local title = Instance.new("TextLabel", frame); title.Size = UDim2.new(1, 0, 0, 30); title.Text = "DIRTANK ULTIMATE v61.6"
 title.TextColor3, title.BackgroundTransparency = Color3.new(1,1,1), 1; title.Font = Enum.Font.SourceSansBold; title.TextSize = 18
-
 local sidebar = Instance.new("Frame", frame); sidebar.Size, sidebar.Position = UDim2.new(0, 100, 1, -30), UDim2.new(0, 0, 0, 30); sidebar.BackgroundColor3 = Color3.fromRGB(60, 0, 0)
 local content = Instance.new("Frame", frame); content.Position, content.Size = UDim2.new(0, 105, 0, 30), UDim2.new(1, -105, 1, -30); content.BackgroundTransparency = 1
 
@@ -149,6 +171,7 @@ local function ShowTab(name)
         CreateBtn("AIM (Q)", 10, function() AimEnabled = not AimEnabled end)
         CreateBtn("HITBOX", 50, function() HitboxEnabled = not HitboxEnabled end)
         CreateBtn("MAGNET KILL (CLICK)", 90, function() DoMagnetKill() end)
+        CreateBtn("MAGNET GRAB GUN", 130, function() GrabGun() end)
     elseif name == "Fling" then
         local scroll = Instance.new("ScrollingFrame", content); scroll.Size, scroll.Position = UDim2.new(0.95, 0, 0, 10), UDim2.new(0.025, 0, 0, 10)
         scroll.CanvasSize, scroll.BackgroundColor3, scroll.Size = UDim2.new(0,0,0,0), Color3.fromRGB(30,30,30), UDim2.new(0.95, 0, 0, 130)
@@ -169,15 +192,15 @@ local function ShowTab(name)
     elseif name == "Movement" then
         CreateBtn("AIR-SPEED (Z)", 10, function() BHOP_Enabled = not BHOP_Enabled end)
         local slbl = Instance.new("TextLabel", content); slbl.Size, slbl.Position = UDim2.new(0.9,0,0,30), UDim2.new(0.05,0,0,50)
-        slbl.Text, slbl.TextColor3, slbl.BackgroundTransparency = "CURRENT SPEED: " .. SG_Power, Color3.new(1,1,1), 1
-        CreateBtn("SPEED +5", 85, function() SG_Power = SG_Power + 5 slbl.Text = "CURRENT SPEED: "..SG_Power end, UDim2.new(0.45, 0, 0, 35))
-        CreateBtn("SPEED -5", 85, function() SG_Power = math.max(0, SG_Power - 5) slbl.Text = "CURRENT SPEED: "..SG_Power end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 85)
+        slbl.Text, slbl.TextColor3, slbl.BackgroundTransparency = "SPEED: "..SG_Power, Color3.new(1,1,1), 1
+        CreateBtn("SPEED +5", 85, function() SG_Power = SG_Power + 5 slbl.Text = "SPEED: "..SG_Power end, UDim2.new(0.45, 0, 0, 35))
+        CreateBtn("SPEED -5", 85, function() SG_Power = math.max(0, SG_Power - 5) slbl.Text = "SPEED: "..SG_Power end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 85)
     elseif name == "Visuals" then
         CreateBtn("SHOW FOV", 10, function() FOV_Enabled = not FOV_Enabled end)
         local flbl = Instance.new("TextLabel", content); flbl.Size, flbl.Position = UDim2.new(0.9,0,0,30), UDim2.new(0.05,0,0,50)
-        flbl.Text, flbl.TextColor3, flbl.BackgroundTransparency = "FOV RADIUS: " .. FOV_Radius, Color3.new(1,1,1), 1
-        CreateBtn("FOV +20", 85, function() FOV_Radius = FOV_Radius + 20 flbl.Text = "FOV RADIUS: "..FOV_Radius end, UDim2.new(0.45, 0, 0, 35))
-        CreateBtn("FOV -20", 85, function() FOV_Radius = math.max(10, FOV_Radius - 20) flbl.Text = "FOV RADIUS: "..FOV_Radius end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 85)
+        flbl.Text, flbl.TextColor3, flbl.BackgroundTransparency = "FOV: " .. FOV_Radius, Color3.new(1,1,1), 1
+        CreateBtn("FOV +20", 85, function() FOV_Radius = FOV_Radius + 20 flbl.Text = "FOV: "..FOV_Radius end, UDim2.new(0.45, 0, 0, 35))
+        CreateBtn("FOV -20", 85, function() FOV_Radius = math.max(10, FOV_Radius - 20) flbl.Text = "FOV: "..FOV_Radius end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 85)
     elseif name == "System" then
         CreateBtn("UNINJECT", 10, function() _G.Dirtank_Active = false FOV_Circle:Remove(); sg:Destroy() end)
     end
