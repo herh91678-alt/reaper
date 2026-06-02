@@ -1,38 +1,56 @@
 -- ========================================================
--- NEXUS AFK MANAGER v1.5 (COMPACT NEON EDIT)
+-- NEXUS AFK MANAGER v1.7 (ULTRA-STABLE LOADSTRING EDITION)
 -- ========================================================
+print("🚀 [NEXUS AFK]: Скрипт успешно скачан! Начинаю инициализацию...")
 
 local Players = game:GetService("Players")
 local VirtualUser = game:GetService("VirtualUser")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local localPlayer = Players.LocalPlayer
 
--- Защита от дублей
-if playerGui:FindFirstChild("NexusAFKCompact") then
-    playerGui.NexusAFKCompact:Destroy()
+-- Жесткое ожидание загрузки игрока (защита от быстрого инжекта)
+local localPlayer = Players.LocalPlayer
+while not localPlayer do
+    task.wait(0.2)
+    localPlayer = Players.LocalPlayer
 end
 
--- ScreenGui
+-- Безопасное ожидание интерфейса
+local playerGui = localPlayer:WaitForChild("PlayerGui", 15)
+if not playerGui then
+    playerGui = localPlayer:FindFirstChildOfClass("PlayerGui")
+end
+
+if not playerGui then
+    warn("❌ [NEXUS AFK]: Критическая ошибка! Не удалось найти PlayerGui игры.")
+    return
+end
+
+-- Удаление старой панели, если она была
+if playerGui:FindFirstChild("NexusAFKCompact") then
+    playerGui.NexusAFKCompact:Destroy()
+    print("🧹 [NEXUS AFK]: Старая панель удалена.")
+end
+
+-- Создание ScreenGui
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "NexusAFKCompact"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
--- ТАБЛИЦА СОСТОЯНИЯ (State)
 local config = {
     Enabled = true,
-    LastInputTimestamp = tick(), -- Время последнего физического действия игрока
-    ActiveConnections = {}      -- Папка для хранения потоков (чтобы их выключать)
+    LastInputTimestamp = tick(),
+    ActiveConnections = {}
 }
 
 -- ========================================================
--- UI ДИЗАЙН (КИБЕРПАНК МИНИМАЛИЗМ)
+-- ИНТЕРФЕЙС
 -- ========================================================
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 220, 0, 130) -- Максимально ужатый размер
-mainFrame.Position = UDim2.new(0.95, -220, 0.95, -130) -- Правый нижний угол
+mainFrame.Size = UDim2.new(0, 220, 0, 130)
+mainFrame.Position = UDim2.new(0.95, -220, 0.95, -130)
 mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
 mainFrame.BorderSizePixel = 0
 mainFrame.Parent = screenGui
@@ -41,7 +59,6 @@ local mainCorner = Instance.new("UICorner")
 mainCorner.CornerRadius = UDim.new(0, 10)
 mainCorner.Parent = mainFrame
 
--- Фоновый градиент
 local bgGradient = Instance.new("UIGradient")
 bgGradient.Color = ColorSequence.new({
     ColorSequenceKeypoint.new(0, Color3.fromRGB(22, 22, 28)),
@@ -49,18 +66,16 @@ bgGradient.Color = ColorSequence.new({
 })
 bgGradient.Parent = mainFrame
 
--- Неоновая полоска
 local topBar = Instance.new("Frame")
 topBar.Size = UDim2.new(1, 0, 0, 3)
 topBar.BackgroundColor3 = Color3.fromRGB(140, 82, 255)
 topBar.BorderSizePixel = 0
 topBar.Parent = mainFrame
 
--- Заголовок
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, 0, 0, 30)
 titleLabel.Position = UDim2.new(0, 0, 0, 4)
-titleLabel.Text = "  NEXUS AFK MANAGER v1.5"
+titleLabel.Text = "  NEXUS AFK MANAGER v1.7"
 titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.BackgroundTransparency = 1
@@ -68,10 +83,12 @@ titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextSize = 10
 titleLabel.Parent = mainFrame
 
--- СИСТЕМА ДРАГГИНГА (Перетаскивание)
+-- Перетаскивание
 local dragging, dragStart, startPos
 mainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = true; dragStart = input.Position; startPos = mainFrame.Position end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then 
+        dragging = true; dragStart = input.Position; startPos = mainFrame.Position 
+    end
 end)
 UserInputService.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement and dragging then
@@ -83,7 +100,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 UserInputService.InputEnded:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
 
--- КНОПКА ВКЛ/ВЫКЛ
+-- Кнопка
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 200, 0, 34)
 toggleButton.Position = UDim2.new(0.5, -100, 0, 42)
@@ -93,63 +110,56 @@ toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 toggleButton.Parent = mainFrame
 Instance.new("UICorner", toggleButton).CornerRadius = UDim.new(0, 6)
 
--- ТАЙМЕР АФК
+-- Таймер
 local timerLabel = Instance.new("TextLabel")
 timerLabel.Size = UDim2.new(1, 0, 0, 30)
 timerLabel.Position = UDim2.new(0, 0, 0, 80)
 timerLabel.Text = "Время AFK: 00:00:00"
 timerLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
-timerLabel.Font = Enum.Font.Code -- Шрифт моноширинный для красивого таймера
+timerLabel.Font = Enum.Font.Code
 timerLabel.TextSize = 11
 timerLabel.BackgroundTransparency = 1
 timerLabel.Parent = mainFrame
 
 -- ========================================================
--- ЛОГИКА (АНТИ-КИК И ТАЙМЕР)
+-- СИСТЕМНАЯ ЛОГИКА
 -- ========================================================
-
--- Обновление времени последнего действия игрока (при движении мыши или нажатии клавиш)
 UserInputService.InputBegan:Connect(function() config.LastInputTimestamp = tick() end)
 UserInputService.InputChanged:Connect(function() config.LastInputTimestamp = tick() end)
 
--- Функция обновления UI в зависимости от статуса
 local function updateButtonVisuals()
     if config.Enabled then
         toggleButton.Text = "🛡️ ANTI-AFK: ВКЛЮЧЕН"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(110, 60, 200) -- Фиолетовый
+        toggleButton.BackgroundColor3 = Color3.fromRGB(140, 82, 255)
     else
         toggleButton.Text = "❌ ANTI-AFK: ВЫКЛЮЧЕН"
-        toggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 42) -- Серый
-        timerLabel.Text = "Время AFK: 00:00:00" -- Сброс таймера при выключении
+        toggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+        timerLabel.Text = "Время AFK: 00:00:00"
     end
 end
 
--- Главная функция переключения
 local function toggleAntiAFK()
     config.Enabled = not config.Enabled
     updateButtonVisuals()
     
-    -- Управление фоновыми процессами
     if config.Enabled then
-        -- 1. Подключение Anti-Kick логики
+        -- Обход AFK кика через симуляцию мыши
         config.ActiveConnections.IdleEvent = localPlayer.Idled:Connect(function()
             pcall(function()
-                VirtualUser:Button2Down(Vector2.new(0, 0), game.Workspace.CurrentCamera.CFrame)
+                local cameraCFrame = workspace.CurrentCamera and workspace.CurrentCamera.CFrame or CFrame.new()
+                VirtualUser:Button2Down(Vector2.new(0, 0), cameraCFrame)
                 task.wait(0.5)
-                VirtualUser:Button2Up(Vector2.new(0, 0), game.Workspace.CurrentCamera.CFrame)
-                print("🛡️ [Anti-AFK]: Активность симулирована.")
+                VirtualUser:Button2Up(Vector2.new(0, 0), cameraCFrame)
+                print("🛡️ [NEXUS AFK]: Защита сработала. Сервер думает, что вы тут.")
             end)
         end)
         
-        -- 2. Подключение цикла Таймера
+        -- Поток обновления таймера
         config.ActiveConnections.TimerLoop = RunService.RenderStepped:Connect(function()
             pcall(function()
                 local afkSeconds = math.floor(tick() - config.LastInputTimestamp)
-                
-                -- Если время AFK отрицательное (например, из-за синхронизации часов), ставим 0
                 if afkSeconds < 0 then afkSeconds = 0 end
                 
-                -- Форматирование времени ЧЧ:ММ:СС
                 local hours = math.floor(afkSeconds / 3600)
                 local minutes = math.floor((afkSeconds % 3600) / 60)
                 local seconds = afkSeconds % 60
@@ -157,20 +167,18 @@ local function toggleAntiAFK()
                 timerLabel.Text = string.format("Время AFK: %02d:%02d:%02d", hours, minutes, seconds)
             end)
         end)
-        
-        print("✅ [AFK v1.5]: Система запущена.")
     else
-        -- Безопасное отключение всех процессов
-        if config.ActiveConnections.IdleEvent then config.ActiveConnections.IdleEvent:Disconnect(); config.ActiveConnections.IdleEvent = nil end
-        if config.ActiveConnections.TimerLoop then config.ActiveConnections.TimerLoop:Disconnect(); config.ActiveConnections.TimerLoop = nil end
-        
-        print("⛔ [AFK v1.5]: Система остановлена.")
+        if config.ActiveConnections.IdleEvent then config.ActiveConnections.IdleEvent:Disconnect() end
+        if config.ActiveConnections.TimerLoop then config.ActiveConnections.TimerLoop:Disconnect() end
+        config.ActiveConnections = {}
     end
 end
 
--- Привязка к кнопке
 toggleButton.MouseButton1Click:Connect(toggleAntiAFK)
 
--- Инициализация при запуске
+-- Авто-старт при инжекте
 updateButtonVisuals()
-toggleAntiAFK() -- Запускаем ВКЛЮЧЕННЫМ по умолчанию
+config.Enabled = false
+toggleAntiAFK()
+
+print("✅ [NEXUS AFK]: Инициализация успешно завершена!")
