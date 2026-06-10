@@ -1,0 +1,75 @@
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local Camera = game:Workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+-- Параметры
+local Settings = {
+    ESPEnabled = true,
+    SilentAimEnabled = false,
+    AimMode = "Camera", -- "Camera" или "Mouse"
+    FOV = 200
+}
+
+-- [GUI Setup]
+local ScreenGui = Instance.new("ScreenGui", game.CoreGui)
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Size = UDim2.new(0, 200, 0, 150)
+MainFrame.Position = UDim2.new(0.1, 0, 0.1, 0)
+MainFrame.Draggable = true
+
+local ToggleSilent = Instance.new("TextButton", MainFrame)
+ToggleSilent.Text = "Toggle Silent Aim"
+ToggleSilent.Size = UDim2.new(1, 0, 0, 50)
+ToggleSilent.MouseButton1Click:Connect(function() 
+    Settings.SilentAimEnabled = not Settings.SilentAimEnabled 
+end)
+
+local ToggleMode = Instance.new("TextButton", MainFrame, {Position = UDim2.new(0, 0, 0, 50)})
+ToggleMode.Text = "Switch Mode (Mouse/Camera)"
+ToggleMode.Size = UDim2.new(1, 0, 0, 50)
+ToggleMode.MouseButton1Click:Connect(function()
+    Settings.AimMode = (Settings.AimMode == "Camera" and "Mouse" or "Camera")
+end)
+
+-- [ESP Logic]
+local function createESP(player)
+    if player == LocalPlayer then return end
+    local highlight = Instance.new("Highlight", player.Character)
+    local billboard = Instance.new("BillboardGui", player.Character:WaitForChild("Head"))
+    billboard.Size = UDim2.new(0, 100, 0, 50)
+    local nameTag = Instance.new("TextLabel", billboard)
+    nameTag.Text = player.Name
+end
+
+for _, p in pairs(Players:GetPlayers()) do createESP(p) end
+Players.PlayerAdded:Connect(createESP)
+
+-- [Silent Aim Logic]
+local function getClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, v in pairs(Players:GetPlayers()) do
+        if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("Head") then
+            local pos, onScreen = Camera:WorldToViewportPoint(v.Character.Head.Position)
+            if onScreen then
+                local mag = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                if mag < dist then closest = v.Character.Head; dist = mag end
+            end
+        end
+    end
+    return closest
+end
+
+RunService.RenderStepped:Connect(function()
+    if Settings.SilentAimEnabled then
+        local target = getClosestTarget()
+        if target then
+            if Settings.AimMode == "Camera" then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Position)
+            elseif Settings.AimMode == "Mouse" then
+                local pos = Camera:WorldToScreenPoint(target.Position)
+                mousemoverel(pos.X - Camera.ViewportSize.X/2, pos.Y - Camera.ViewportSize.Y/2)
+            end
+        end
+    end
+end)
