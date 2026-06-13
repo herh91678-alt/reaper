@@ -1,75 +1,68 @@
--- [[ STEALTH HUB V17.0: ULTIMATE GARDEN EDITION ]] --
+-- [[ STEALTH HUB V24.0: ULTIMATE ALL-IN-ONE ]] --
 local Players = game:GetService("Players"); local LP = Players.LocalPlayer
 local RS = game:GetService("RunService"); local UIS = game:GetService("UserInputService")
-local Camera = workspace.CurrentCamera; local CoreGui = game:GetService("CoreGui"); local TS = game:GetService("TeleportService")
+local Camera = workspace.CurrentCamera; local CoreGui = game:GetService("CoreGui")
 
-getgenv().S = {Silent = true, Speed = 75, Fly = false, AntiRag = true, ESP = true, FruitESP = true}
-local ESP_T, ESP_F = {}, {}
+getgenv().S = {Speed = 75, Fly = false}
 
--- 1. GUI
-local G = Instance.new("ScreenGui", CoreGui); local F = Instance.new("Frame", G); F.Size = UDim2.new(0, 180, 0, 300); F.Position = UDim2.new(0.5, 0, 0.5, 0); F.Draggable = true; F.Active = true; F.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-local SB = Instance.new("TextBox", F); SB.Size = UDim2.new(0.9, 0, 0.1, 0); SB.Position = UDim2.new(0.05, 0, 0.05, 0); SB.PlaceholderText = "Speed"; SB.Text = "75"
-local FB = Instance.new("TextButton", F); FB.Size = UDim2.new(0.9, 0, 0.1, 0); FB.Position = UDim2.new(0.05, 0, 0.2, 0); FB.Text = "Fly Toggle"
-local HB = Instance.new("TextButton", F); HB.Size = UDim2.new(0.9, 0, 0.1, 0); HB.Position = UDim2.new(0.05, 0, 0.35, 0); HB.Text = "Server Hop"
-local FE = Instance.new("TextButton", F); FE.Size = UDim2.new(0.9, 0, 0.1, 0); FE.Position = UDim2.new(0.05, 0, 0.5, 0); FE.Text = "Fruit ESP: ON"
-SB.FocusLost:Connect(function() S.Speed = tonumber(SB.Text) or 75 end)
+-- 1. GUI (Интерфейс)
+local G = Instance.new("ScreenGui", CoreGui); local F = Instance.new("Frame", G); F.Size = UDim2.new(0, 200, 0, 250); F.Position = UDim2.new(0.5, -100, 0.2, 0); F.Draggable = true; F.Active = true; F.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+local FB = Instance.new("TextButton", F); FB.Size = UDim2.new(0.9, 0, 0.2, 0); FB.Position = UDim2.new(0.05, 0, 0.05, 0); FB.Text = "Fly: OFF"
+local IB = Instance.new("TextButton", F); IB.Size = UDim2.new(0.9, 0, 0.2, 0); IB.Position = UDim2.new(0.05, 0, 0.3, 0); IB.Text = "Interact (E)"
+local SB = Instance.new("TextBox", F); SB.Size = UDim2.new(0.9, 0, 0.2, 0); SB.Position = UDim2.new(0.05, 0, 0.55, 0); SB.PlaceholderText = "Speed (75)"; SB.Text = "75"
 
--- 2. MAIN CORE (Fly, Speed, Anti-Rag, Anti-Lagback)
+-- 2. ОСНОВНЫЕ ФУНКЦИИ
 local bv, bg, lastPos
+
+local function Interact()
+    local mouse = LP:GetMouse()
+    if mouse.Target then
+        local target = mouse.Target:FindFirstAncestorOfClass("Model") or mouse.Target
+        local cd = target:FindFirstChildWhichIsA("ClickDetector", true)
+        local pp = target:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if cd then fireclickdetector(cd)
+        elseif pp then fireproximityprompt(pp) end
+    end
+end
+
+-- 3. ЦИКЛ (FLY + ANTI-TELEPORT)
 RS.Heartbeat:Connect(function()
-    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
-    local h = LP.Character:FindFirstChild("Humanoid"); local r = LP.Character.HumanoidRootPart
-    if h then h.WalkSpeed = S.Speed if S.AntiRag then h:ChangeState(Enum.HumanoidStateType.GettingUp) end end
-    if S.Fly then
-        if not bv then bv = Instance.new("BodyVelocity", r); bv.MaxForce = Vector3.new(9e9, 9e9, 9e9); bg = Instance.new("BodyGyro", r); bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9); bg.P = 10000 end
-        local cam = Camera.CFrame; local dir = Vector3.new(0, 0, 0)
-        if UIS:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.LookVector end
-        if UIS:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.RightVector end
-        bv.Velocity = dir * S.Speed; bg.CFrame = cam
-    elseif bv then bv:Destroy(); bg:Destroy(); bv = nil; bg = nil end
-    if lastPos and (r.Position - lastPos).Magnitude > 30 then r.CFrame = CFrame.new(lastPos) else lastPos = r.Position end
-end)
-
--- 3. ESP & FRUIT ESP
-local function CreateT(color) local t = Drawing.new("Text"); t.Size = 14; t.Center = true; t.Color = color; return t end
-RS.RenderStepped:Connect(function()
-    -- Player ESP
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if not ESP_T[p] then ESP_T[p] = CreateT(Color3.new(1,1,1)) end
-            local pos, on = Camera:WorldToViewportPoint(p.Character.HumanoidRootPart.Position)
-            if on and S.ESP then ESP_T[p].Visible = true; ESP_T[p].Position = Vector2.new(pos.X, pos.Y); ESP_T[p].Text = p.Name else ESP_T[p].Visible = false end
+    local char = LP.Character; if not char then return end
+    local r = char:FindFirstChild("HumanoidRootPart"); local h = char:FindFirstChild("Humanoid")
+    
+    if h then h.WalkSpeed = S.Speed; h:ChangeState(Enum.HumanoidStateType.GettingUp) end
+    
+    -- Fly Logic
+    if S.Fly and r then
+        if not bv then 
+            bv = Instance.new("BodyVelocity", r); bv.MaxForce = Vector3.new(9e9,9e9,9e9); bv.Velocity = Vector3.new(0,0,0)
+            bg = Instance.new("BodyGyro", r); bg.MaxTorque = Vector3.new(9e9,9e9,9e9); bg.P = 10000 
         end
-    end
-    -- Fruit ESP
-    if S.FruitESP then
-        for _, v in pairs(workspace:GetDescendants()) do
-            if v:IsA("Model") and (v.Name == "Fruit" or v:FindFirstChild("Price")) then
-                if not ESP_F[v] then ESP_F[v] = CreateT(Color3.new(1,1,0)) end
-                local pos, on = Camera:WorldToViewportPoint(v:GetPivot().Position)
-                if on then ESP_F[v].Visible = true; ESP_F[v].Position = Vector2.new(pos.X, pos.Y); ESP_F[v].Text = v.Name .. " | $" .. tostring(v:GetAttribute("Price") or "???")
-                else ESP_F[v].Visible = false end
-            end
-        end
+        local cam = Camera.CFrame
+        local move = Vector3.new(0,0,0)
+        if UIS:IsKeyDown(Enum.KeyCode.W) then move = move + cam.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then move = move - cam.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then move = move - cam.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then move = move + cam.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space) then move = move + Vector3.new(0,1,0) end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then move = move - Vector3.new(0,1,0) end
+        bv.Velocity = move * S.Speed
+        bg.CFrame = cam
+    elseif bv then bv:Destroy(); bg:Destroy(); bv=nil; bg=nil end
+    
+    -- Anti-Teleport
+    if r then
+        if not S.Fly then
+            if lastPos and (r.Position - lastPos).Magnitude > 30 then r.CFrame = CFrame.new(lastPos)
+            else lastPos = r.Position end
+        else lastPos = r.Position end
     end
 end)
 
--- 4. HOOKS & TOGGLES
-local mt = getrawmetatable(game); local old = mt.__namecall; setreadonly(mt, false)
-mt.__namecall = newcclosure(function(self, ...)
-    local args = {...}; local method = getnamecallmethod()
-    if S.Silent and method == "FireServer" and getgenv().Target and not checkcaller() then
-        if tostring(self.Name):find("Shoot") then args[1] = getgenv().Target.Position; return old(self, unpack(args)) end
-    end
-    return old(self, ...)
-end); setreadonly(mt, true)
+-- 4. ПРИВЯЗКИ
+FB.MouseButton1Click:Connect(function() S.Fly = not S.Fly; FB.Text = S.Fly and "Fly: ON" or "Fly: OFF" end)
+IB.MouseButton1Click:Connect(Interact)
+SB.FocusLost:Connect(function() S.Speed = tonumber(SB.Text) or 75 end)
+UIS.InputBegan:Connect(function(i, g) if not g and i.KeyCode == Enum.KeyCode.E then Interact() end end)
 
-UIS.InputBegan:Connect(function(i, g) if not g and i.KeyCode == Enum.KeyCode.Insert then F.Visible = not F.Visible end end)
-FB.MouseButton1Click:Connect(function() S.Fly = not S.Fly end)
-FE.MouseButton1Click:Connect(function() S.FruitESP = not S.FruitESP; FE.Text = "Fruit ESP: "..(S.FruitESP and "ON" or "OFF") end)
-HB.MouseButton1Click:Connect(function()
-    local srvs = game:GetService("HttpService"):JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?limit=100"))
-    for _, v in pairs(srvs.data) do if v.playing < v.maxPlayers and v.id ~= game.JobId then TS:TeleportToPlaceInstance(game.PlaceId, v.id, LP) end end
-end)
+print("STEALTH HUB V24.0 READY")
