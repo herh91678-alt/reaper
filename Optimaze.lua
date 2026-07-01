@@ -179,7 +179,7 @@ end)
 AddTab("SCRIPTS", function(p)
     CreateBtn(p, "♾️ INFINITY YIELD", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source"))() end)
     CreateBtn(p, "🌪️ ULTIMATE FLING", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/K1LAS1K/Ultimate-Fling-GUI/main/flingscript.lua"))() end)
-    CreateBtn(p, "🔪 REAPER (MM2)", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/herh91678-alt/reaper/main/loader.lua"))() end)
+    CreateBtn(p, "🔪 hunberg (MM2)", function() loadstring(game:HttpGet("https://raw.githubusercontent.com/herh91678-alt/reaper/main/loader.lua"))() end)
 end)
 
 AddTab("SETTINGS", function(p)
