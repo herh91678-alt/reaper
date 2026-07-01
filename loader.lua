@@ -3,7 +3,6 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 
 _G.hunberg_Active = true
@@ -32,9 +31,10 @@ FOV_Circle.Thickness, FOV_Circle.Color, FOV_Circle.Transparency = 2, Color3.new(
 
 local currentHat = nil
 local hatOffset = 2.0
+local hatTilt = 0
 local hatColor = Color3.new(1, 0.55, 0)
 
--- ESP Drawing + роли
+-- ESP
 local espDrawings = {}
 
 local function UpdateESP()
@@ -80,6 +80,21 @@ end
 
 RS.Heartbeat:Connect(UpdateESP)
 
+-- BHOP (исправлено)
+RS.Heartbeat:Connect(function()
+    if not BHOP_Enabled then return end
+    local char = LP.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hrp and hum and hum.MoveDirection.Magnitude > 0 then
+        if hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall then
+            local moveDir = hum.MoveDirection
+            hrp.Velocity = Vector3.new(moveDir.X * SG_Power, hrp.Velocity.Y, moveDir.Z * SG_Power)
+        end
+    end
+end)
+
 local function GrabGun()
     local char = LP.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -87,7 +102,7 @@ local function GrabGun()
 
     if LastSheriffDeathPos then
         hrp.CFrame = LastSheriffDeathPos
-        task.wait(0.15)
+        task.wait(0.1)
     end
 
     local gunHandle = nil
@@ -105,7 +120,7 @@ local function GrabGun()
             gunHandle.CFrame = hrp.CFrame * CFrame.new(0, 0, -1.5)
             gunHandle.Velocity = Vector3.new(0,0,0)
             task.wait()
-        until tick() - startTime > 2.5 or LP.Backpack:FindFirstChild("Gun") or char:FindFirstChild("Gun")
+        until tick() - startTime > 2 or LP.Backpack:FindFirstChild("Gun") or char:FindFirstChild("Gun")
     end
 end
 
@@ -215,14 +230,6 @@ RS.Heartbeat:Connect(function()
             end
         end
     end
-    local lpChar = LP.Character
-    local hum = lpChar and lpChar:FindFirstChildOfClass("Humanoid")
-    local hrp = lpChar and lpChar:FindFirstChild("HumanoidRootPart")
-    if BHOP_Enabled and hrp and hum and hum.MoveDirection.Magnitude > 0 then
-        if hum:GetState() == Enum.HumanoidStateType.Jumping or hum:GetState() == Enum.HumanoidStateType.Freefall then
-            hrp.Velocity = Vector3.new(hum.MoveDirection.X * SG_Power, hrp.Velocity.Y, hum.MoveDirection.Z * SG_Power)
-        end
-    end
 end)
 
 -- AIM & FOV
@@ -261,11 +268,13 @@ RS.RenderStepped:Connect(function()
     end
 end)
 
--- Китайская шляпа (с сохранением после смерти)
-local hatConnection
+-- Китайская шляпа
 local function CreateChineseHat()
     local char = LP.Character
-    if not char or not char:FindFirstChild("Head") then return end
+    if not char or not char:FindFirstChild("Head") then
+        print("❌ Нет персонажа!")
+        return
+    end
 
     if char:FindFirstChild("ChineseHat") then
         char.ChineseHat:Destroy()
@@ -288,24 +297,19 @@ local function CreateChineseHat()
     mesh.Scale = Vector3.new(2.3, 0.9, 2.3)
     mesh.Parent = hat
 
-    if hatConnection then hatConnection:Disconnect() end
-    hatConnection = RS.RenderStepped:Connect(function()
+    local connection
+    connection = RS.RenderStepped:Connect(function()
         if not hat.Parent or not char:FindFirstChild("Head") then
-            hatConnection:Disconnect()
+            connection:Disconnect()
             return
         end
-        hat.CFrame = char.Head.CFrame * CFrame.new(0, hatOffset, 0) * CFrame.Angles(0, 0, 0)
+        local tiltCFrame = CFrame.Angles(math.rad(hatTilt), 0, 0)
+        hat.CFrame = char.Head.CFrame * CFrame.new(0, hatOffset, 0) * tiltCFrame
     end)
 
     currentHat = hat
     print("✅ Приплюснутая шляпа надета!")
 end
-
--- Автоматическое создание шляпы после респавна
-LP.CharacterAdded:Connect(function()
-    task.wait(1)
-    if currentHat then CreateChineseHat() end
-end)
 
 -- GUI
 local sg = Instance.new("ScreenGui", LP.PlayerGui); sg.Name = "hunberg"; sg.ResetOnSpawn = false
@@ -386,69 +390,12 @@ local function ShowTab(name)
         slbl.Text = "SPEED: "..SG_Power; slbl.TextColor3, slbl.BackgroundTransparency = Color3.new(1,1,1), 1
         CreateBtn("SPEED +5", 85, function() SG_Power = SG_Power + 5 slbl.Text = "SPEED: "..SG_Power end, UDim2.new(0.45, 0, 0, 35))
         CreateBtn("SPEED -5", 85, function() SG_Power = math.max(0, SG_Power - 5) slbl.Text = "SPEED: "..SG_Power end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 85)
-    elseif name == "Visuals" then
-        CreateBtn("SHOW FOV", 10, function() FOV_Enabled = not FOV_Enabled end)
-        local flbl = Instance.new("TextLabel", content); flbl.Size, flbl.Position = UDim2.new(0.9,0,0,30), UDim2.new(0.05,0,0,50)
-        flbl.Text = "FOV: " .. FOV_Radius; flbl.TextColor3, flbl.BackgroundTransparency = Color3.new(1,1,1), 1
-        CreateBtn("FOV +20", 85, function() FOV_Radius = FOV_Radius + 20 flbl.Text = "FOV: "..FOV_Radius end, UDim2.new(0.45, 0, 0, 35))
-        CreateBtn("FOV -20", 85, function() FOV_Radius = math.max(10, FOV_Radius - 20) flbl.Text = "FOV: "..FOV_Radius end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 85)
-        CreateBtn("BODY DIR: " .. BodyDirectionMode, 130, function(b)
-            local modes = {"Normal", "Backward", "Left", "Right"}
-            local idx = table.find(modes, BodyDirectionMode) or 1
-            idx = idx % #modes + 1
-            BodyDirectionMode = modes[idx]
-            b.Text = "BODY DIR: " .. BodyDirectionMode
-        end)
-        CreateBtn("ENABLE BODY DIR", 170, function(b)
-            BodyDirectionEnabled = not BodyDirectionEnabled
-            b.Text = "BODY DIR: " .. (BodyDirectionEnabled and "ON" or "OFF")
-            b.BackgroundColor3 = BodyDirectionEnabled and Color3.fromRGB(0,100,0) or Color3.fromRGB(40,40,40)
-        end)
-
-        -- Китайская шляпа
-        CreateBtn("CHINESE HAT", 210, function()
-            CreateChineseHat()
-        end)
-
-        CreateBtn("↑ ВЫШЕ", 255, function()
-            hatOffset = hatOffset + 0.2
-            print("Высота: " .. hatOffset)
-        end, UDim2.new(0.45, 0, 0, 35))
-
-        CreateBtn("↓ НИЖЕ", 255, function()
-            hatOffset = hatOffset - 0.2
-            print("Высота: " .. hatOffset)
-        end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 255)
-
-        -- Смена цвета шляпы
-        CreateBtn("КРАСНЫЙ", 295, function()
-            hatColor = Color3.new(1, 0, 0)
-            if currentHat then currentHat.Color = hatColor end
-        end, UDim2.new(0.45, 0, 0, 35))
-
-        CreateBtn("СИНИЙ", 295, function()
-            hatColor = Color3.new(0, 0.6, 1)
-            if currentHat then currentHat.Color = hatColor end
-        end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 295)
-
-        CreateBtn("ЖЁЛТЫЙ", 335, function()
-            hatColor = Color3.new(1, 0.9, 0)
-            if currentHat then currentHat.Color = hatColor end
-        end, UDim2.new(0.45, 0, 0, 35))
-
-        CreateBtn("РАДУЖНЫЙ", 335, function()
-            local connection
-            connection = RS.RenderStepped:Connect(function()
-                if not currentHat then connection:Disconnect() return end
-                hatColor = Color3.fromHSV(tick() % 5 / 5, 1, 1)
-                currentHat.Color = hatColor
-            end)
-        end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 335)
-
-        local hlbl = Instance.new("TextLabel", content); hlbl.Size, hlbl.Position = UDim2.new(0.9,0,0,30), UDim2.new(0.05,0,0,375)
-        hlbl.Text = "HITBOX SIZE: " .. HitboxSize; hlbl.TextColor3, hlbl.BackgroundTransparency = Color3.new(1,1,1), 1
-        CreateBtn("HITBOX +1", 410, function() HitboxSize = HitboxSize + 1; hlbl.Text = "HITBOX SIZE: " .. HitboxSize end, UDim2.new(0.45, 0, 0, 35))
-        CreateBtn("HITBOX -1", 410, function() HitboxSize = math.max(2, HitboxSize - 1); hlbl.Text = "HITBOX SIZE: " .. HitboxSize end, UDim2.new(0.45, 0, 0, 35)).Position = UDim2.new(0.5, 5, 0, 410)
+    elseif name == "Accessories" then
+        CreateBtn("CHINESE HAT", 10, function() CreateChineseHat() end)
+        CreateBtn("↑ ВЫШЕ", 60, function() hatOffset = hatOffset + 0.2 end)
+        CreateBtn("↓ НИЖЕ", 100, function() hatOffset = hatOffset - 0.2 end)
+        CreateBtn("НАКЛОН ВПЕРЁД", 140, function() hatTilt = hatTilt - 10 end)
+        CreateBtn("НАКЛОН НАЗАД", 180, function() hatTilt = hatTilt + 10 end)
     elseif name == "System" then
         CreateBtn("UNINJECT", 10, function() _G.hunberg_Active = false FOV_Circle:Remove(); sg:Destroy() end)
     end
@@ -459,8 +406,8 @@ local function Nav(t, y, n)
     b.BackgroundColor3, b.TextColor3 = Color3.fromRGB(30,30,30), Color3.new(1,1,1); b.MouseButton1Click:Connect(function() ShowTab(n) end)
 end
 
-Nav("Combat", 0, "Combat"); Nav("Trolling", 40, "Trolling"); Nav("Movement", 80, "Movement"); Nav("Visuals", 120, "Visuals"); Nav("System", 160, "System")
+Nav("Combat", 0, "Combat"); Nav("Trolling", 40, "Trolling"); Nav("Movement", 80, "Movement"); Nav("Accessories", 120, "Accessories"); Nav("System", 160, "System")
 
-ShowTab("Visuals")
+ShowTab("Combat")
 
 print("hunberg loaded")
