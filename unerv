@@ -1,0 +1,1078 @@
+-- [[ IMPERIAL UI: VIOLENT DISTRICT - FREECAM ОТ ПЕРВОГО ЛИЦА ]] --
+
+local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TweenService")
+local Players = game:GetService("Players")
+local RS = game:GetService("RunService")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ===== ОПРЕДЕЛЕНИЕ ПЛЕЙСА =====
+local PLACE_ID = game.PlaceId
+local isSpecialPlace = (PLACE_ID == 93978595733734)
+
+-- ===== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ =====
+local char, hum = nil, nil
+local AimbotEnabled = false
+local SpeedEnabled = false
+local ESPEnabled = false
+local CrosshairEnabled = false
+local HUDEnabled = false
+local ShakerEnabled = false
+local DickEnabled = false
+local FreeCamEnabled = false
+local GodModeEnabled = false
+local NoclipEnabled = false
+local AutoParryEnabled = false
+local AutoGenEnabled = false
+local flySpeed = 50
+local sensitivity = 0.005
+local cameraRotation = Vector2.new(0, 0)
+local PredictionFactor = 0.15
+local originalSpeed = 16
+local speedMultiplier = 2.5
+local speedLoop = nil
+local noclipLoop = nil
+local ScreenGui = nil
+local Frame = nil
+local isGUIVisible = false
+local FOV = 70
+local godModeTimer = nil
+
+-- Free Cam (новый)
+local freeCamRootPart = nil
+local freeCamConnection = nil
+local freeCamSavedPos = nil
+
+-- Переменные для хуя
+local dickModel = nil
+
+-- Переменные для троллинга
+local selectedPlayer = nil
+local popupScreenGui = nil
+local popupFrame = nil
+local playerListContainer = nil
+local TrollingPage = nil
+
+-- Бинды (упрощённые)
+local KeyBinds = {
+    FreeCamToggle = Enum.KeyCode.X,
+    FreeCamTeleport = Enum.KeyCode.F,
+    AimbotToggle = Enum.KeyCode.LeftAlt,
+    SpeedToggle = Enum.KeyCode.LeftControl,
+}
+
+-- Шалун
+local shakerConnections = {}
+local shakerTracks = {}
+local shakerIsPlaying = false
+
+-- ===== ФУНКЦИИ ДЛЯ ТРОЛЛИНГА =====
+local function GetPlayerHRP(plr)
+    if plr and plr.Character then
+        return plr.Character:FindFirstChild("HumanoidRootPart")
+    end
+    return nil
+end
+
+local function FlingPlayer(plr)
+    local hrp = GetPlayerHRP(plr)
+    if not hrp then return end
+    local velocity = hrp.Velocity
+    local lookDir = hrp.CFrame.LookVector
+    local moveDir = velocity.Magnitude > 1 and velocity.Unit or lookDir
+    local power = 80
+    local ping = LP:GetNetworkPing() or 0
+    local delay = math.clamp(0.05 + ping * 0.001, 0.05, 0.5)
+    task.wait(delay)
+    hrp.Velocity = moveDir * power + Vector3.new(0, 25, 0)
+    hrp.RotVelocity = Vector3.zero
+    print("[Троллинг] Флинг на " .. plr.Name .. " (задержка " .. delay .. " сек)")
+end
+
+local function TeleportToPlayer(plr)
+    local hrp = GetPlayerHRP(plr)
+    local myHrp = char and char:FindFirstChild("HumanoidRootPart")
+    if hrp and myHrp then
+        myHrp.CFrame = hrp.CFrame + Vector3.new(0, 3, 0)
+        print("[Троллинг] Телепорт к " .. plr.Name)
+    end
+end
+
+-- ===== AIMBOT =====
+local function GetClosestPlayerInFOV()
+    local closest, closestDist = nil, math.huge
+    local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+    local screenSize = Camera.ViewportSize
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local root = p.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+            if not onScreen then continue end
+            local dx = screenPos.X - screenSize.X / 2
+            local dy = screenPos.Y - screenSize.Y / 2
+            local distFromCenter = math.sqrt(dx * dx + dy * dy)
+            local fovDeg = (distFromCenter / screenSize.X) * 90
+            if fovDeg > FOV then continue end
+            local d = (root.Position - myRoot.Position).Magnitude
+            if d < closestDist then
+                closestDist = d
+                closest = p.Character
+            end
+        end
+    end
+    return closest
+end
+
+-- ===== ФИКС СКОРОСТИ =====
+local function ApplySpeed()
+    if not char or not hum then return end
+    if originalSpeed == 16 and hum.WalkSpeed > 0 then originalSpeed = hum.WalkSpeed end
+    if SpeedEnabled then
+        hum.WalkSpeed = originalSpeed * speedMultiplier
+    else
+        hum.WalkSpeed = originalSpeed
+    end
+end
+
+local function StartSpeedLoop()
+    if speedLoop then speedLoop:Disconnect() end
+    speedLoop = RS.RenderStepped:Connect(function()
+        if SpeedEnabled and char and hum then
+            if hum.WalkSpeed < originalSpeed * speedMultiplier * 0.9 or hum.WalkSpeed > originalSpeed * speedMultiplier * 1.1 then
+                hum.WalkSpeed = originalSpeed * speedMultiplier
+            end
+        end
+    end)
+end
+
+local function StopSpeedLoop()
+    if speedLoop then speedLoop:Disconnect(); speedLoop = nil end
+end
+
+local function UpdateSpeed()
+    ApplySpeed()
+    if SpeedEnabled then StartSpeedLoop() else StopSpeedLoop() end
+end
+
+-- ===== GOD MODE =====
+local function StartGodMode()
+    if godModeTimer then godModeTimer:Disconnect() end
+    if not char or not hum then return end
+    godModeTimer = RS.Heartbeat:Connect(function()
+        if not GodModeEnabled then return end
+        if hum and hum.Health < hum.MaxHealth then
+            hum.Health = hum.MaxHealth
+        end
+        if hum then
+            hum.MaxHealth = 100
+            if hum.Health < hum.MaxHealth then hum.Health = hum.MaxHealth end
+        end
+    end)
+end
+
+local function StopGodMode()
+    if godModeTimer then godModeTimer:Disconnect(); godModeTimer = nil end
+end
+
+local function ToggleGodMode(state)
+    GodModeEnabled = state
+    if state then StartGodMode() else StopGodMode() end
+end
+
+-- ===== NOCLIP =====
+local function ApplyNoclip()
+    if not char then return end
+    for _, part in pairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = not NoclipEnabled
+        end
+    end
+end
+
+local function StartNoclipLoop()
+    if noclipLoop then noclipLoop:Disconnect() end
+    noclipLoop = RS.RenderStepped:Connect(function()
+        if NoclipEnabled and char then
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
+
+local function StopNoclipLoop()
+    if noclipLoop then noclipLoop:Disconnect(); noclipLoop = nil end
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
+local function ToggleNoclip(state)
+    NoclipEnabled = state
+    if state then
+        ApplyNoclip()
+        StartNoclipLoop()
+    else
+        StopNoclipLoop()
+    end
+end
+
+-- ===== INFINITE YIELD =====
+local function LoadInfiniteYield()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/EdgeIY/infinite-yield/master/source"))()
+end
+
+-- ===== ШАЛУН =====
+local function createShakerTool()
+    local tool = Instance.new("Tool")
+    tool.Name = "Jerk Off"
+    tool.RequiresHandle = false
+    tool.Parent = LP.Backpack
+    return tool
+end
+
+local function forceShakerAnimation(id, startTime, endTime, trackId, speed)
+    local character = LP.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    if shakerTracks[trackId] then shakerTracks[trackId]:Stop(); shakerTracks[trackId] = nil end
+    local anim = Instance.new("Animation")
+    anim.AnimationId = "rbxassetid://" .. id
+    local track = humanoid:LoadAnimation(anim)
+    track.Priority = Enum.AnimationPriority.Action4
+    track.Looped = false
+    shakerTracks[trackId] = track
+    shakerConnections[trackId] = RS.RenderStepped:Connect(function()
+        if not shakerIsPlaying then track:Stop(); return end
+        if not track.IsPlaying or track.TimePosition >= endTime then
+            track:Play()
+            track.TimePosition = startTime
+            track:AdjustSpeed(speed)
+        end
+    end)
+    track:Play()
+    track.TimePosition = startTime
+    track:AdjustSpeed(speed)
+end
+
+local function startShaker()
+    shakerIsPlaying = true
+    forceShakerAnimation("72042024", 0.3, 0.8, 1, 3.5)
+    forceShakerAnimation("168268306", 0.8, 1.1, 2, 4.0)
+end
+
+local function stopShaker()
+    shakerIsPlaying = false
+    for _, conn in pairs(shakerConnections) do conn:Disconnect() end
+    shakerConnections = {}
+    for _, track in pairs(shakerTracks) do track:Stop() end
+    shakerTracks = {}
+end
+
+local function setupShakerTool(tool)
+    tool.Equipped:Connect(startShaker)
+    tool.Unequipped:Connect(stopShaker)
+end
+
+local function ToggleShaker(state)
+    ShakerEnabled = state
+    if state then
+        local tool = LP.Backpack:FindFirstChild("Jerk Off")
+        if not tool then tool = createShakerTool(); setupShakerTool(tool) end
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            LP.Character.Humanoid:EquipTool(tool)
+        end
+    else
+        stopShaker()
+        local tool = LP.Backpack:FindFirstChild("Jerk Off")
+        if tool then tool:Destroy() end
+    end
+end
+
+-- ===== ПРИКОЛ: ХУЙ =====
+local function CreateDick()
+    if dickModel then pcall(dickModel.Destroy, dickModel); dickModel = nil end
+    if not char then return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    local model = Instance.new("Model")
+    model.Name = "Dick"
+    model.Parent = workspace
+    local shaft = Instance.new("Part")
+    shaft.Size = Vector3.new(0.5, 1.8, 0.5)
+    shaft.Shape = Enum.PartType.Cylinder
+    shaft.Material = Enum.Material.SmoothPlastic
+    shaft.BrickColor = BrickColor.new("Bright red")
+    shaft.Anchored = false
+    shaft.CanCollide = false
+    shaft.Parent = model
+    local head = Instance.new("Part")
+    head.Size = Vector3.new(0.9, 0.9, 0.9)
+    head.Shape = Enum.PartType.Ball
+    head.Material = Enum.Material.SmoothPlastic
+    head.BrickColor = BrickColor.new("Really red")
+    head.Anchored = false
+    head.CanCollide = false
+    head.Parent = model
+    local ballL = Instance.new("Part")
+    ballL.Size = Vector3.new(0.6, 0.6, 0.6)
+    ballL.Shape = Enum.PartType.Ball
+    ballL.Material = Enum.Material.SmoothPlastic
+    ballL.BrickColor = BrickColor.new("Dark red")
+    ballL.Anchored = false
+    ballL.CanCollide = false
+    ballL.Parent = model
+    local ballR = Instance.new("Part")
+    ballR.Size = Vector3.new(0.6, 0.6, 0.6)
+    ballR.Shape = Enum.PartType.Ball
+    ballR.Material = Enum.Material.SmoothPlastic
+    ballR.BrickColor = BrickColor.new("Dark red")
+    ballR.Anchored = false
+    ballR.CanCollide = false
+    ballR.Parent = model
+    local function WeldPart(part, cframeOffset)
+        local weld = Instance.new("Weld")
+        weld.Part0 = root
+        weld.Part1 = part
+        weld.C0 = CFrame.new(0,0,0)
+        weld.C1 = cframeOffset
+        weld.Parent = part
+    end
+    WeldPart(shaft, CFrame.new(0, -0.8, 1.2))
+    WeldPart(head, CFrame.new(0, 0.1, 1.2))
+    WeldPart(ballL, CFrame.new(-0.5, -1.2, 1.0))
+    WeldPart(ballR, CFrame.new(0.5, -1.2, 1.0))
+    local glow = Instance.new("SelectionBox", model)
+    glow.Color3 = Color3.new(1,0.2,0.2)
+    glow.Transparency = 0.5
+    glow.Adornee = model
+    dickModel = model
+end
+
+local function RemoveDick()
+    if dickModel then pcall(dickModel.Destroy, dickModel); dickModel = nil end
+end
+
+local function ToggleDick(state)
+    DickEnabled = state
+    if state then CreateDick() else RemoveDick() end
+end
+
+-- ===== FREE CAM (НОВЫЙ, ОТ ПЕРВОГО ЛИЦА) =====
+local function StartFreeCam()
+    if isSpecialPlace then return end
+    if not char then return end
+    local rootPart = char:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+
+    -- Сохраняем ссылку на rootPart
+    freeCamRootPart = rootPart
+
+    -- Замораживаем персонажа
+    rootPart.Anchored = true
+
+    -- Устанавливаем камеру в голову или на уровень глаз
+    local head = char:FindFirstChild("Head")
+    local camPos = head and head.Position or rootPart.Position + Vector3.new(0, 1.5, 0)
+    Camera.CFrame = CFrame.new(camPos)
+
+    -- Сохраняем угол обзора
+    local x, y, z = Camera.CFrame:ToEulerAnglesYXZ()
+    cameraRotation = Vector2.new(x, y)
+
+    Camera.CameraType = Enum.CameraType.Scriptable
+
+    -- Блокируем мышь
+    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+
+    -- Сохраняем позицию для телепорта
+    freeCamSavedPos = Camera.CFrame.Position
+
+    -- Запускаем обновление камеры
+    if freeCamConnection then freeCamConnection:Disconnect() end
+    freeCamConnection = RS.RenderStepped:Connect(function(dt)
+        if not FreeCamEnabled then return end
+
+        -- Вращение от мыши
+        local delta = UIS:GetMouseDelta()
+        cameraRotation = cameraRotation - Vector2.new(delta.Y * sensitivity, delta.X * sensitivity)
+        cameraRotation = Vector2.new(math.clamp(cameraRotation.X, -1.5, 1.5), cameraRotation.Y)
+
+        Camera.CFrame = CFrame.new(Camera.CFrame.Position) * CFrame.fromEulerAnglesYXZ(cameraRotation.X, cameraRotation.Y, 0)
+
+        -- Движение WASD
+        local moveDir = Vector3.new()
+        if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir += Camera.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir -= Camera.CFrame.LookVector end
+        if UIS:IsKeyDown(Enum.KeyCode.A) then moveDir -= Camera.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D) then moveDir += Camera.CFrame.RightVector end
+
+        if moveDir.Magnitude > 0 then
+            Camera.CFrame = Camera.CFrame + (moveDir.Unit * flySpeed * dt)
+        end
+
+        -- Обновляем сохранённую позицию для телепорта
+        freeCamSavedPos = Camera.CFrame.Position
+    end)
+
+    print("[FreeCam] Активирована от первого лица.")
+end
+
+local function StopFreeCam()
+    if isSpecialPlace then return end
+    if freeCamConnection then
+        freeCamConnection:Disconnect()
+        freeCamConnection = nil
+    end
+
+    -- Возвращаем мышь в обычный режим
+    UIS.MouseBehavior = Enum.MouseBehavior.Default
+
+    -- Телепортируем персонажа в точку камеры
+    if freeCamRootPart then
+        freeCamRootPart.CFrame = Camera.CFrame
+        freeCamRootPart.Anchored = false
+        freeCamRootPart = nil
+    end
+
+    -- Возвращаем камеру на персонажа
+    if char and hum then
+        Camera.CameraSubject = hum
+        Camera.CameraType = Enum.CameraType.Custom
+    end
+
+    print("[FreeCam] Деактивирована.")
+end
+
+local function TeleportToFreeCam()
+    if isSpecialPlace then print("Free Cam недоступна в этом плейсе.") return end
+    if not FreeCamEnabled then print("Сначала включите FreeCam.") return end
+    if not freeCamSavedPos then print("Нет сохранённой позиции.") return end
+    if not char then print("Персонаж не найден.") return end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.CFrame = CFrame.new(freeCamSavedPos)
+        print("Телепорт в точку камеры.")
+    else
+        print("Нет HumanoidRootPart.")
+    end
+end
+
+local function ToggleFreeCam(state)
+    if isSpecialPlace then
+        print("Free Cam отключена в этом плейсе.")
+        return
+    end
+    FreeCamEnabled = state
+    if state then
+        StartFreeCam()
+    else
+        StopFreeCam()
+    end
+end
+
+-- ===== ПЕРСОНАЖ =====
+local function OnCharacterAdded(newChar)
+    char = newChar
+    hum = newChar:WaitForChild("Humanoid")
+    task.wait(0.1)
+    if hum and hum.WalkSpeed > 0 then originalSpeed = hum.WalkSpeed end
+    ApplySpeed()
+    StartSpeedLoop()
+    if ShakerEnabled then
+        task.wait(0.5)
+        local tool = LP.Backpack:FindFirstChild("Jerk Off")
+        if not tool then tool = createShakerTool(); setupShakerTool(tool) end
+        hum:EquipTool(tool)
+    end
+    if DickEnabled then task.wait(0.2); CreateDick() end
+    if FreeCamEnabled and not isSpecialPlace then
+        task.wait(0.2)
+        StartFreeCam()
+    end
+    if GodModeEnabled and not isSpecialPlace then task.wait(0.2); StartGodMode() end
+    if NoclipEnabled then task.wait(0.2); ApplyNoclip(); StartNoclipLoop() end
+end
+
+-- ===== GUI =====
+local function CreateGUI()
+    if ScreenGui then pcall(ScreenGui.Destroy, ScreenGui); ScreenGui = nil end
+    ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "ImperialGui"
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.Parent = game:GetService("CoreGui")
+    ScreenGui.DisplayOrder = 999
+    ScreenGui.IgnoreGuiInset = true
+
+    -- HUD
+    local HudFrame = Instance.new("Frame", ScreenGui)
+    HudFrame.Size = UDim2.new(0, 450, 0, 50)
+    HudFrame.Position = UDim2.new(0, 20, 0, 20)
+    HudFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    HudFrame.BackgroundTransparency = 0.3
+    HudFrame.Visible = false
+    Instance.new("UICorner", HudFrame).CornerRadius = UDim.new(0, 12)
+    local HudText = Instance.new("TextLabel", HudFrame)
+    HudText.Size = UDim2.new(1, 0, 1, 0)
+    HudText.BackgroundTransparency = 1
+    HudText.TextColor3 = Color3.new(1,1,1)
+    HudText.Font = Enum.Font.GothamBold
+    HudText.TextSize = 16
+    task.spawn(function()
+        while ScreenGui and ScreenGui.Parent do
+            if HudFrame and HudFrame.Visible then
+                local fps = math.floor(1 / RS.RenderStepped:Wait())
+                local status = FreeCamEnabled and "FREE CAM ON" or "FREE CAM OFF"
+                local godStatus = GodModeEnabled and "GOD ON" or "GOD OFF"
+                local noclipStatus = NoclipEnabled and "NOCLIP ON" or "NOCLIP OFF"
+                HudText.Text = string.format("FPS: %d | FOV: %d° | %s | %s | %s", fps, FOV, status, godStatus, noclipStatus)
+            end
+            task.wait(0.5)
+        end
+    end)
+
+    -- ОСНОВНОЕ МЕНЮ
+    Frame = Instance.new("Frame", ScreenGui)
+    Frame.Size = UDim2.new(0, 750, 0, 760)
+    Frame.Position = UDim2.new(0.5, -375, 0.5, -380)
+    Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    Frame.Visible = false
+    Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 25)
+
+    local Sidebar = Instance.new("Frame", Frame)
+    Sidebar.Size = UDim2.new(0, 180, 1, 0)
+    Sidebar.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
+    Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 25)
+
+    local Pages = {}
+    local function CreatePage(name)
+        local p = Instance.new("ScrollingFrame", Frame)
+        p.Size = UDim2.new(1, -200, 1, -40)
+        p.Position = UDim2.new(0, 190, 0, 20)
+        p.BackgroundTransparency = 1
+        p.Visible = false
+        p.ScrollBarThickness = 0
+        Instance.new("UIListLayout", p).Padding = UDim.new(0, 15)
+        Pages[name] = p
+        return p
+    end
+
+    local CombatPage = CreatePage("Combat")
+    local MovementPage = CreatePage("Movement")
+    local VisualsPage = CreatePage("Visuals")
+    local FunctionsPage = CreatePage("Functions")
+    local TrollingPage = CreatePage("Trolling")
+    local FreeCamPage = isSpecialPlace and nil or CreatePage("FreeCam")
+    local JokesPage = CreatePage("Приколы")
+    local BindingsPage = CreatePage("Бинды")
+
+    local function CreateSwitch(parent, text, callback)
+        local container = Instance.new("Frame", parent)
+        container.Size = UDim2.new(1, -20, 0, 60)
+        container.BackgroundTransparency = 1
+        local lbl = Instance.new("TextLabel", container)
+        lbl.Size = UDim2.new(0.6, 0, 1, 0)
+        lbl.Text = "  " .. text
+        lbl.TextColor3 = Color3.new(1,1,1)
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 20
+        lbl.BackgroundTransparency = 1
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        local switchZone = Instance.new("Frame", container)
+        switchZone.Size = UDim2.new(0, 70, 0, 35)
+        switchZone.Position = UDim2.new(0.7, 0, 0.2, 0)
+        switchZone.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        Instance.new("UICorner", switchZone).CornerRadius = UDim.new(1, 0)
+        local circle = Instance.new("Frame", switchZone)
+        circle.Size = UDim2.new(0, 35, 0, 35)
+        circle.BackgroundColor3 = Color3.new(1,1,1)
+        Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+        local btn = Instance.new("TextButton", switchZone)
+        btn.Size = UDim2.new(1, 0, 1, 0)
+        btn.BackgroundTransparency = 1
+        btn.Text = ""
+        local active = false
+        btn.MouseButton1Click:Connect(function()
+            active = not active
+            callback(active)
+            TS:Create(switchZone, TweenInfo.new(0.3), {BackgroundColor3 = active and Color3.fromRGB(85, 255, 127) or Color3.fromRGB(50, 50, 50)}):Play()
+            TS:Create(circle, TweenInfo.new(0.3), {Position = active and UDim2.new(0.5, 0, 0, 0) or UDim2.new(0, 0, 0, 0)}):Play()
+        end)
+    end
+
+    local function CreateBindDisplay(parent, text, key)
+        local container = Instance.new("Frame", parent)
+        container.Size = UDim2.new(1, -20, 0, 40)
+        container.BackgroundTransparency = 1
+        local lbl = Instance.new("TextLabel", container)
+        lbl.Size = UDim2.new(0.6, 0, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextColor3 = Color3.new(1,1,1)
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = 18
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        local keyLbl = Instance.new("TextLabel", container)
+        keyLbl.Size = UDim2.new(0.3, 0, 1, 0)
+        keyLbl.Position = UDim2.new(0.7, 0, 0, 0)
+        keyLbl.BackgroundTransparency = 1
+        keyLbl.Text = tostring(key)
+        keyLbl.TextColor3 = Color3.fromRGB(255, 200, 0)
+        keyLbl.Font = Enum.Font.GothamBold
+        keyLbl.TextSize = 18
+        keyLbl.TextXAlignment = Enum.TextXAlignment.Right
+    end
+
+    -- Combat
+    CreateSwitch(CombatPage, "Aimbot + Prediction (RMB)", function(v) AimbotEnabled = v end)
+    if not isSpecialPlace then
+        CreateSwitch(CombatPage, "🛡️ Auto Parry", function(v) AutoParryEnabled = v print("Auto Parry: "..tostring(v)) end)
+    end
+
+    -- Movement
+    CreateSwitch(MovementPage, "⚡ Speed Hack", function(v) SpeedEnabled = v UpdateSpeed() end)
+    local speedMultFrame = Instance.new("Frame", MovementPage)
+    speedMultFrame.Size = UDim2.new(1, -20, 0, 50)
+    speedMultFrame.BackgroundTransparency = 1
+    local speedMultLabel = Instance.new("TextLabel", speedMultFrame)
+    speedMultLabel.Size = UDim2.new(0.6, 0, 1, 0)
+    speedMultLabel.BackgroundTransparency = 1
+    speedMultLabel.Text = "Множитель скорости: " .. string.format("%.1f", speedMultiplier)
+    speedMultLabel.TextColor3 = Color3.new(1,1,1)
+    speedMultLabel.Font = Enum.Font.GothamBold
+    speedMultLabel.TextSize = 18
+    speedMultLabel.TextXAlignment = Enum.TextXAlignment.Left
+    local speedMultInput = Instance.new("TextBox", speedMultFrame)
+    speedMultInput.Size = UDim2.new(0.3, 0, 0.8, 0)
+    speedMultInput.Position = UDim2.new(0.65, 0, 0.1, 0)
+    speedMultInput.BackgroundColor3 = Color3.fromRGB(50,50,60)
+    speedMultInput.Text = string.format("%.1f", speedMultiplier)
+    speedMultInput.TextColor3 = Color3.new(1,1,1)
+    speedMultInput.Font = Enum.Font.GothamBold
+    speedMultInput.TextSize = 16
+    Instance.new("UICorner", speedMultInput).CornerRadius = UDim.new(0, 8)
+    speedMultInput.FocusLost:Connect(function()
+        local val = tonumber(speedMultInput.Text)
+        if val and val >= 0.5 and val <= 10 then
+            speedMultiplier = val
+            speedMultLabel.Text = "Множитель скорости: " .. string.format("%.1f", speedMultiplier)
+            if SpeedEnabled then UpdateSpeed() end
+        else
+            speedMultInput.Text = string.format("%.1f", speedMultiplier)
+        end
+    end)
+
+    -- Visuals
+    CreateSwitch(VisualsPage, "ESP Highlight (Red)", function(v) ESPEnabled = v end)
+    CreateSwitch(VisualsPage, "Crosshair (Line)", function(v) CrosshairEnabled = v end)
+
+    -- Functions
+    CreateSwitch(FunctionsPage, "🚪 Noclip (проход сквозь стены)", function(v) ToggleNoclip(v) end)
+    if not isSpecialPlace then
+        CreateSwitch(FunctionsPage, "💀 God Mode (реген HP)", function(v) ToggleGodMode(v) end)
+        CreateSwitch(FunctionsPage, "🔧 Auto Generator", function(v) AutoGenEnabled = v print("Auto Gen: "..tostring(v)) end)
+    end
+    local iyBtn = Instance.new("TextButton", FunctionsPage)
+    iyBtn.Size = UDim2.new(0.8, 0, 0, 45)
+    iyBtn.Position = UDim2.new(0.1, 0, 0, (not isSpecialPlace and 220) or 120)
+    iyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    iyBtn.Text = "Загрузить Infinite Yield"
+    iyBtn.TextColor3 = Color3.new(1,1,1)
+    iyBtn.Font = Enum.Font.GothamBold
+    iyBtn.TextSize = 18
+    Instance.new("UICorner", iyBtn).CornerRadius = UDim.new(0, 10)
+    iyBtn.MouseButton1Click:Connect(function()
+        LoadInfiniteYield()
+    end)
+    CreateSwitch(FunctionsPage, "Show HUD", function(v) HUDEnabled = v; HudFrame.Visible = v end)
+
+    -- FreeCam (только если не спецплейс)
+    if not isSpecialPlace then
+        CreateSwitch(FreeCamPage, "🎥 Free Cam (от первого лица)", function(v) ToggleFreeCam(v) end)
+        -- Ползунок скорости
+        local speedSlider = Instance.new("Frame", FreeCamPage)
+        speedSlider.Size = UDim2.new(1, -20, 0, 50)
+        speedSlider.BackgroundTransparency = 1
+        local speedLabel = Instance.new("TextLabel", speedSlider)
+        speedLabel.Size = UDim2.new(0.6, 0, 1, 0)
+        speedLabel.BackgroundTransparency = 1
+        speedLabel.Text = "Скорость полёта: " .. flySpeed
+        speedLabel.TextColor3 = Color3.new(1,1,1)
+        speedLabel.Font = Enum.Font.GothamBold
+        speedLabel.TextSize = 18
+        speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+        local slider = Instance.new("TextBox", speedSlider)
+        slider.Size = UDim2.new(0.3, 0, 0.8, 0)
+        slider.Position = UDim2.new(0.65, 0, 0.1, 0)
+        slider.BackgroundColor3 = Color3.fromRGB(50,50,60)
+        slider.Text = tostring(flySpeed)
+        slider.TextColor3 = Color3.new(1,1,1)
+        slider.Font = Enum.Font.GothamBold
+        slider.TextSize = 16
+        Instance.new("UICorner", slider).CornerRadius = UDim.new(0, 8)
+        slider.FocusLost:Connect(function()
+            local val = tonumber(slider.Text)
+            if val and val > 0 and val <= 200 then
+                flySpeed = val
+                speedLabel.Text = "Скорость полёта: " .. flySpeed
+            else
+                slider.Text = tostring(flySpeed)
+            end
+        end)
+        -- Чувствительность
+        local sensSlider = Instance.new("Frame", FreeCamPage)
+        sensSlider.Size = UDim2.new(1, -20, 0, 50)
+        sensSlider.Position = UDim2.new(0, 0, 0, 60)
+        sensSlider.BackgroundTransparency = 1
+        local sensLabel = Instance.new("TextLabel", sensSlider)
+        sensLabel.Size = UDim2.new(0.6, 0, 1, 0)
+        sensLabel.BackgroundTransparency = 1
+        sensLabel.Text = "Чувствительность: " .. string.format("%.3f", sensitivity)
+        sensLabel.TextColor3 = Color3.new(1,1,1)
+        sensLabel.Font = Enum.Font.GothamBold
+        sensLabel.TextSize = 18
+        sensLabel.TextXAlignment = Enum.TextXAlignment.Left
+        local sensInput = Instance.new("TextBox", sensSlider)
+        sensInput.Size = UDim2.new(0.3, 0, 0.8, 0)
+        sensInput.Position = UDim2.new(0.65, 0, 0.1, 0)
+        sensInput.BackgroundColor3 = Color3.fromRGB(50,50,60)
+        sensInput.Text = string.format("%.3f", sensitivity)
+        sensInput.TextColor3 = Color3.new(1,1,1)
+        sensInput.Font = Enum.Font.GothamBold
+        sensInput.TextSize = 16
+        Instance.new("UICorner", sensInput).CornerRadius = UDim.new(0, 8)
+        sensInput.FocusLost:Connect(function()
+            local val = tonumber(sensInput.Text)
+            if val and val > 0 and val <= 0.05 then
+                sensitivity = val
+                sensLabel.Text = "Чувствительность: " .. string.format("%.3f", sensitivity)
+            else
+                sensInput.Text = string.format("%.3f", sensitivity)
+            end
+        end)
+
+        -- Кнопка телепорта
+        local teleBtn = Instance.new("TextButton", FreeCamPage)
+        teleBtn.Size = UDim2.new(0.8, 0, 0, 50)
+        teleBtn.Position = UDim2.new(0.1, 0, 0, 130)
+        teleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        teleBtn.Text = "Телепорт в точку камеры (F)"
+        teleBtn.TextColor3 = Color3.new(1,1,1)
+        teleBtn.Font = Enum.Font.GothamBold
+        teleBtn.TextSize = 18
+        Instance.new("UICorner", teleBtn).CornerRadius = UDim.new(0, 10)
+        teleBtn.MouseButton1Click:Connect(function()
+            TeleportToFreeCam()
+        end)
+    end
+
+    -- Приколы
+    CreateSwitch(JokesPage, "🔞 Шалун (анимация)", function(v) ToggleShaker(v) end)
+    CreateSwitch(JokesPage, "🍆 Хуй (прикол)", function(v) ToggleDick(v) end)
+
+    -- Бинды
+    if not isSpecialPlace then
+        CreateBindDisplay(BindingsPage, "Вкл/Выкл FreeCam (X)", KeyBinds.FreeCamToggle)
+        CreateBindDisplay(BindingsPage, "Телепорт к камере (F)", KeyBinds.FreeCamTeleport)
+    end
+    CreateBindDisplay(BindingsPage, "Вкл/Выкл Aimbot (LeftAlt)", KeyBinds.AimbotToggle)
+    CreateBindDisplay(BindingsPage, "Вкл/Выкл Speed (LeftCtrl)", KeyBinds.SpeedToggle)
+
+    -- Троллинг
+    playerListContainer = Instance.new("ScrollingFrame", TrollingPage)
+    playerListContainer.Size = UDim2.new(1, 0, 1, 0)
+    playerListContainer.BackgroundTransparency = 1
+    playerListContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    playerListContainer.ScrollBarThickness = 8
+    Instance.new("UIListLayout", playerListContainer).Padding = UDim.new(0, 5)
+
+    local function ShowPopup(player)
+        if popupScreenGui then pcall(popupScreenGui.Destroy, popupScreenGui); popupScreenGui = nil; popupFrame = nil end
+        popupScreenGui = Instance.new("ScreenGui")
+        popupScreenGui.Name = "TrollingPopup"
+        popupScreenGui.ResetOnSpawn = false
+        popupScreenGui.Parent = game:GetService("CoreGui")
+        popupScreenGui.DisplayOrder = 9999
+        popupScreenGui.IgnoreGuiInset = true
+        popupFrame = Instance.new("Frame", popupScreenGui)
+        popupFrame.Size = UDim2.new(0, 220, 0, 160)
+        popupFrame.Position = UDim2.new(0.5, -110, 0.5, -80)
+        popupFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        popupFrame.BackgroundTransparency = 0.1
+        popupFrame.BorderSizePixel = 0
+        Instance.new("UICorner", popupFrame).CornerRadius = UDim.new(0, 15)
+        popupFrame.ZIndex = 9999
+        local title = Instance.new("TextLabel", popupFrame)
+        title.Size = UDim2.new(1, 0, 0, 35)
+        title.BackgroundTransparency = 1
+        title.Text = "Действия для " .. player.Name
+        title.TextColor3 = Color3.new(1,1,1)
+        title.Font = Enum.Font.GothamBold
+        title.TextSize = 16
+        local closeBtn = Instance.new("TextButton", popupFrame)
+        closeBtn.Size = UDim2.new(0, 30, 0, 30)
+        closeBtn.Position = UDim2.new(1, -35, 0, 5)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        closeBtn.Text = "✕"
+        closeBtn.TextColor3 = Color3.new(1,1,1)
+        closeBtn.TextSize = 16
+        closeBtn.Font = Enum.Font.GothamBold
+        Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+        closeBtn.MouseButton1Click:Connect(function()
+            if popupScreenGui then pcall(popupScreenGui.Destroy, popupScreenGui); popupScreenGui = nil; popupFrame = nil end
+        end)
+        local teleBtn2 = Instance.new("TextButton", popupFrame)
+        teleBtn2.Size = UDim2.new(0.8, 0, 0, 35)
+        teleBtn2.Position = UDim2.new(0.1, 0, 0, 50)
+        teleBtn2.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        teleBtn2.Text = "Телепорт"
+        teleBtn2.TextColor3 = Color3.new(1,1,1)
+        teleBtn2.Font = Enum.Font.GothamBold
+        teleBtn2.TextSize = 16
+        Instance.new("UICorner", teleBtn2).CornerRadius = UDim.new(0, 8)
+        teleBtn2.MouseButton1Click:Connect(function()
+            TeleportToPlayer(player)
+            if popupScreenGui then pcall(popupScreenGui.Destroy, popupScreenGui); popupScreenGui = nil; popupFrame = nil end
+        end)
+        local flingBtn2 = Instance.new("TextButton", popupFrame)
+        flingBtn2.Size = UDim2.new(0.8, 0, 0, 35)
+        flingBtn2.Position = UDim2.new(0.1, 0, 0, 95)
+        flingBtn2.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+        flingBtn2.Text = "Флинг (с пингом)"
+        flingBtn2.TextColor3 = Color3.new(1,1,1)
+        flingBtn2.Font = Enum.Font.GothamBold
+        flingBtn2.TextSize = 16
+        Instance.new("UICorner", flingBtn2).CornerRadius = UDim.new(0, 8)
+        flingBtn2.MouseButton1Click:Connect(function()
+            FlingPlayer(player)
+            if popupScreenGui then pcall(popupScreenGui.Destroy, popupScreenGui); popupScreenGui = nil; popupFrame = nil end
+        end)
+    end
+
+    local function CreatePlayerButton(plr)
+        if plr == LP then return end
+        local btn = Instance.new("TextButton", playerListContainer)
+        btn.Size = UDim2.new(1, -10, 0, 50)
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        btn.BackgroundTransparency = 0.4
+        btn.Text = ""
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        local avatar = Instance.new("ImageLabel", btn)
+        avatar.Size = UDim2.new(0, 40, 0, 40)
+        avatar.Position = UDim2.new(0, 5, 0.5, -20)
+        avatar.BackgroundTransparency = 1
+        avatar.Image = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. plr.UserId .. "&width=50&height=50"
+        local nameLabel = Instance.new("TextLabel", btn)
+        nameLabel.Size = UDim2.new(0.6, 0, 1, 0)
+        nameLabel.Position = UDim2.new(0, 50, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.TextColor3 = Color3.new(1,1,1)
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.TextSize = 18
+        nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+        nameLabel.Text = plr.Name .. " (" .. plr.DisplayName .. ")"
+        btn.MouseButton1Click:Connect(function()
+            ShowPopup(plr)
+        end)
+    end
+
+    local function RefreshPlayerList()
+        if not playerListContainer then return end
+        for _, child in pairs(playerListContainer:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+        for _, plr in pairs(Players:GetPlayers()) do
+            CreatePlayerButton(plr)
+        end
+        local count = #playerListContainer:GetChildren()
+        playerListContainer.CanvasSize = UDim2.new(0, 0, 0, count * 55)
+    end
+
+    TrollingPage:GetPropertyChangedSignal("Visible"):Connect(function()
+        if TrollingPage.Visible then RefreshPlayerList() end
+    end)
+    Players.PlayerAdded:Connect(RefreshPlayerList)
+    Players.PlayerRemoving:Connect(RefreshPlayerList)
+    task.wait(0.5)
+    RefreshPlayerList()
+
+    -- Вкладки
+    local function CreateTabBtn(name, pos, target)
+        local btn = Instance.new("TextButton", Sidebar)
+        btn.Size = UDim2.new(0.8, 0, 0, 50)
+        btn.Position = pos
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+        btn.Text = name
+        btn.TextColor3 = Color3.new(1,1,1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 20
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 10)
+        btn.MouseButton1Click:Connect(function()
+            for _, p in pairs(Pages) do if p then p.Visible = false end end
+            if target then target.Visible = true end
+        end)
+    end
+
+    local function addTabBtn(name, pos, page)
+        if page then
+            CreateTabBtn(name, pos, page)
+        end
+    end
+
+    addTabBtn("Combat", UDim2.new(0.1, 0, 0, 20), CombatPage)
+    addTabBtn("Movement", UDim2.new(0.1, 0, 0, 80), MovementPage)
+    addTabBtn("Visuals", UDim2.new(0.1, 0, 0, 140), VisualsPage)
+    addTabBtn("Functions", UDim2.new(0.1, 0, 0, 200), FunctionsPage)
+    addTabBtn("FreeCam", UDim2.new(0.1, 0, 0, 260), FreeCamPage)
+    addTabBtn("Троллинг", UDim2.new(0.1, 0, 0, 320), TrollingPage)
+    addTabBtn("Приколы", UDim2.new(0.1, 0, 0, 380), JokesPage)
+    addTabBtn("Бинды", UDim2.new(0.1, 0, 0, 440), BindingsPage)
+
+    -- Горячие клавиши
+    UIS.InputBegan:Connect(function(input, gpe)
+        if gpe then return end
+        local key = input.KeyCode
+        if key == Enum.KeyCode.RightShift then
+            isGUIVisible = not isGUIVisible
+            if Frame then Frame.Visible = isGUIVisible end
+            if not isGUIVisible and popupScreenGui then
+                pcall(popupScreenGui.Destroy, popupScreenGui)
+                popupScreenGui = nil
+                popupFrame = nil
+            end
+        end
+        -- FreeCam хоткеи (только если не спецплейс)
+        if not isSpecialPlace then
+            if key == KeyBinds.FreeCamToggle then
+                ToggleFreeCam(not FreeCamEnabled)
+            elseif key == KeyBinds.FreeCamTeleport then
+                TeleportToFreeCam()
+            end
+        end
+        if key == KeyBinds.AimbotToggle then
+            AimbotEnabled = not AimbotEnabled
+            print("Aimbot: " .. tostring(AimbotEnabled))
+        elseif key == KeyBinds.SpeedToggle then
+            SpeedEnabled = not SpeedEnabled
+            UpdateSpeed()
+            print("Speed: " .. tostring(SpeedEnabled))
+        end
+    end)
+
+    ScreenGui.HudFrame = HudFrame
+    ScreenGui.Frame = Frame
+end
+
+-- ===== ПОДПИСКИ =====
+LP.CharacterAdded:Connect(OnCharacterAdded)
+if LP.Character then OnCharacterAdded(LP.Character) end
+
+RS.Heartbeat:Connect(function()
+    if SpeedEnabled and char and hum then
+        local currentSpeed = hum.WalkSpeed
+        local expectedSpeed = originalSpeed * speedMultiplier
+        if currentSpeed ~= expectedSpeed and currentSpeed > 0 then
+            hum.WalkSpeed = expectedSpeed
+        end
+    end
+end)
+
+-- ===== ОСНОВНОЙ ЛУП =====
+RS.RenderStepped:Connect(function()
+    if AimbotEnabled and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+        local targetChar = GetClosestPlayerInFOV()
+        if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+            local targetRoot = targetChar.HumanoidRootPart
+            local velocity = targetRoot.Velocity
+            local predictedPos = targetRoot.Position + (velocity * PredictionFactor)
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPos)
+        end
+    end
+    if ESPEnabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LP and player.Character then
+                local ch = player.Character
+                local highlight = ch:FindFirstChild("ESP_Highlight")
+                if not highlight then
+                    highlight = Instance.new("Highlight")
+                    highlight.Name = "ESP_Highlight"
+                    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+                    highlight.FillTransparency = 0.5
+                    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                    highlight.OutlineTransparency = 0
+                    highlight.Parent = ch
+                end
+            end
+        end
+    else
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.Character then
+                local highlight = player.Character:FindFirstChild("ESP_Highlight")
+                if highlight then highlight:Destroy() end
+            end
+        end
+    end
+end)
+
+-- Crosshair линии
+local LineH, LineV = nil, nil
+if Drawing then
+    LineH = Drawing.new("Line")
+    LineV = Drawing.new("Line")
+    LineH.Thickness = 2
+    LineV.Thickness = 2
+    LineH.Color = Color3.new(1, 1, 1)
+    LineV.Color = Color3.new(1, 1, 1)
+    LineH.Visible = false
+    LineV.Visible = false
+end
+RS.RenderStepped:Connect(function()
+    if CrosshairEnabled and LineH and LineV then
+        local mPos = UIS:GetMouseLocation()
+        LineH.Visible = true
+        LineV.Visible = true
+        LineH.From = Vector2.new(mPos.X - 12, mPos.Y)
+        LineH.To = Vector2.new(mPos.X + 12, mPos.Y)
+        LineV.From = Vector2.new(mPos.X, mPos.Y - 12)
+        LineV.To = Vector2.new(mPos.X, mPos.Y + 12)
+    else
+        if LineH then LineH.Visible = false end
+        if LineV then LineV.Visible = false end
+    end
+end)
+
+-- ===== ЗАПУСК =====
+CreateGUI()
+task.spawn(function()
+    while true do
+        task.wait(2)
+        pcall(function()
+            if not ScreenGui or not ScreenGui.Parent then CreateGUI() end
+        end)
+    end
+end)
+LP.CharacterAdded:Connect(function()
+    task.wait(0.3)
+    pcall(function()
+        if not ScreenGui or not ScreenGui.Parent then CreateGUI() end
+    end)
+end)
+
+print("⚡ IMPERIAL UI ЗАГРУЖЕН (FREECAM ОТ ПЕРВОГО ЛИЦА) ⚡")
+if isSpecialPlace then
+    print("🔹 Плейс 93978595733734: Free Cam отключена.")
+else
+    print("🔹 Обычный плейс: Auto Parry, Auto Gen, God Mode скрыты.")
+end
+print("FreeCam: X – вкл/выкл, F – телепорт к камере.")
+print("Регулировка множителя скорости в Movement.")
+print("Скорость сохраняется после смерти.")
+print("Press RightShift - меню")
