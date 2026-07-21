@@ -1,4 +1,4 @@
--- [[ IMPERIAL UI: VIOLENT DISTRICT - FREECAM ОТ ПЕРВОГО ЛИЦА ]] --
+-- [[ IMPERIAL UI: VIOLENT DISTRICT - С МОРФОМ ]] --
 
 local UIS = game:GetService("UserInputService")
 local TS = game:GetService("TweenService")
@@ -39,7 +39,7 @@ local isGUIVisible = false
 local FOV = 70
 local godModeTimer = nil
 
--- Free Cam (новый)
+-- Free Cam
 local freeCamRootPart = nil
 local freeCamConnection = nil
 local freeCamSavedPos = nil
@@ -66,6 +66,83 @@ local KeyBinds = {
 local shakerConnections = {}
 local shakerTracks = {}
 local shakerIsPlaying = false
+
+-- ===== НОВАЯ ФУНКЦИЯ ДЛЯ МОРФА =====
+local MORPH_ID = 138151705692565
+
+local function ApplyMorph()
+    if not char then
+        print("[Морф] Нет персонажа для замены.")
+        return
+    end
+    local InsertService = game:GetService("InsertService")
+    print("[Морф] Загрузка модели...")
+    local model = InsertService:LoadAsset(MORPH_ID)
+    if not model or not model:IsA("Model") then
+        print("[Морф] Не удалось загрузить модель.")
+        return
+    end
+    -- Находим человеческий корень и человекообразного
+    local newChar = model
+    local newHum = newChar:FindFirstChildOfClass("Humanoid")
+    if not newHum then
+        -- Может быть внутри
+        for _, child in pairs(newChar:GetChildren()) do
+            newHum = child:FindFirstChildOfClass("Humanoid")
+            if newHum then break end
+        end
+    end
+    if not newHum then
+        print("[Морф] Модель не содержит Humanoid.")
+        model:Destroy()
+        return
+    end
+    -- Отключаем коллизии и прочее
+    for _, part in pairs(newChar:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Anchored = false
+            part.CanCollide = true
+        end
+    end
+    -- Сохраняем позицию
+    local root = char:FindFirstChild("HumanoidRootPart")
+    local pos = root and root.Position or Vector3.new(0, 10, 0)
+    -- Удаляем старого персонажа
+    local oldChar = char
+    oldChar:Destroy()
+    -- Помещаем нового
+    newChar.Parent = workspace
+    -- Ставим на место
+    local newRoot = newChar:FindFirstChild("HumanoidRootPart")
+    if newRoot then
+        newRoot.CFrame = CFrame.new(pos)
+    end
+    -- Применяем настройки
+    char = newChar
+    hum = newHum
+    -- Переключаем камеру
+    Camera.CameraSubject = hum
+    Camera.CameraType = Enum.CameraType.Custom
+    -- Применяем скорость и другие настройки
+    originalSpeed = hum.WalkSpeed
+    ApplySpeed()
+    StartSpeedLoop()
+    if GodModeEnabled then StartGodMode() end
+    if NoclipEnabled then ApplyNoclip(); StartNoclipLoop() end
+    if ShakerEnabled then
+        task.wait(0.2)
+        local tool = LP.Backpack:FindFirstChild("Jerk Off")
+        if not tool then tool = createShakerTool(); setupShakerTool(tool) end
+        hum:EquipTool(tool)
+    end
+    if DickEnabled then task.wait(0.2); CreateDick() end
+    -- Если включён FreeCam – перезапускаем
+    if FreeCamEnabled and not isSpecialPlace then
+        task.wait(0.2)
+        StartFreeCam()
+    end
+    print("[Морф] Морф успешно применён.")
+end
 
 -- ===== ФУНКЦИИ ДЛЯ ТРОЛЛИНГА =====
 local function GetPlayerHRP(plr)
@@ -366,49 +443,38 @@ local function ToggleDick(state)
     if state then CreateDick() else RemoveDick() end
 end
 
--- ===== FREE CAM (НОВЫЙ, ОТ ПЕРВОГО ЛИЦА) =====
+-- ===== FREE CAM =====
 local function StartFreeCam()
     if isSpecialPlace then return end
     if not char then return end
     local rootPart = char:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
 
-    -- Сохраняем ссылку на rootPart
     freeCamRootPart = rootPart
-
-    -- Замораживаем персонажа
     rootPart.Anchored = true
 
-    -- Устанавливаем камеру в голову или на уровень глаз
     local head = char:FindFirstChild("Head")
     local camPos = head and head.Position or rootPart.Position + Vector3.new(0, 1.5, 0)
     Camera.CFrame = CFrame.new(camPos)
 
-    -- Сохраняем угол обзора
     local x, y, z = Camera.CFrame:ToEulerAnglesYXZ()
     cameraRotation = Vector2.new(x, y)
 
     Camera.CameraType = Enum.CameraType.Scriptable
-
-    -- Блокируем мышь
     UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
 
-    -- Сохраняем позицию для телепорта
     freeCamSavedPos = Camera.CFrame.Position
 
-    -- Запускаем обновление камеры
     if freeCamConnection then freeCamConnection:Disconnect() end
     freeCamConnection = RS.RenderStepped:Connect(function(dt)
         if not FreeCamEnabled then return end
 
-        -- Вращение от мыши
         local delta = UIS:GetMouseDelta()
         cameraRotation = cameraRotation - Vector2.new(delta.Y * sensitivity, delta.X * sensitivity)
         cameraRotation = Vector2.new(math.clamp(cameraRotation.X, -1.5, 1.5), cameraRotation.Y)
 
         Camera.CFrame = CFrame.new(Camera.CFrame.Position) * CFrame.fromEulerAnglesYXZ(cameraRotation.X, cameraRotation.Y, 0)
 
-        -- Движение WASD
         local moveDir = Vector3.new()
         if UIS:IsKeyDown(Enum.KeyCode.W) then moveDir += Camera.CFrame.LookVector end
         if UIS:IsKeyDown(Enum.KeyCode.S) then moveDir -= Camera.CFrame.LookVector end
@@ -419,7 +485,6 @@ local function StartFreeCam()
             Camera.CFrame = Camera.CFrame + (moveDir.Unit * flySpeed * dt)
         end
 
-        -- Обновляем сохранённую позицию для телепорта
         freeCamSavedPos = Camera.CFrame.Position
     end)
 
@@ -433,17 +498,14 @@ local function StopFreeCam()
         freeCamConnection = nil
     end
 
-    -- Возвращаем мышь в обычный режим
     UIS.MouseBehavior = Enum.MouseBehavior.Default
 
-    -- Телепортируем персонажа в точку камеры
     if freeCamRootPart then
         freeCamRootPart.CFrame = Camera.CFrame
         freeCamRootPart.Anchored = false
         freeCamRootPart = nil
     end
 
-    -- Возвращаем камеру на персонажа
     if char and hum then
         Camera.CameraSubject = hum
         Camera.CameraType = Enum.CameraType.Custom
@@ -498,7 +560,7 @@ local function OnCharacterAdded(newChar)
         task.wait(0.2)
         StartFreeCam()
     end
-    if GodModeEnabled and not isSpecialPlace then task.wait(0.2); StartGodMode() end
+    if GodModeEnabled then task.wait(0.2); StartGodMode() end
     if NoclipEnabled then task.wait(0.2); ApplyNoclip(); StartNoclipLoop() end
 end
 
@@ -573,6 +635,7 @@ local function CreateGUI()
     local FreeCamPage = isSpecialPlace and nil or CreatePage("FreeCam")
     local JokesPage = CreatePage("Приколы")
     local BindingsPage = CreatePage("Бинды")
+    local MorphPage = CreatePage("Морфы")   -- НОВАЯ СТРАНИЦА
 
     local function CreateSwitch(parent, text, callback)
         local container = Instance.new("Frame", parent)
@@ -676,13 +739,13 @@ local function CreateGUI()
 
     -- Functions
     CreateSwitch(FunctionsPage, "🚪 Noclip (проход сквозь стены)", function(v) ToggleNoclip(v) end)
+    CreateSwitch(FunctionsPage, "💀 God Mode (реген HP)", function(v) ToggleGodMode(v) end)
     if not isSpecialPlace then
-        CreateSwitch(FunctionsPage, "💀 God Mode (реген HP)", function(v) ToggleGodMode(v) end)
         CreateSwitch(FunctionsPage, "🔧 Auto Generator", function(v) AutoGenEnabled = v print("Auto Gen: "..tostring(v)) end)
     end
     local iyBtn = Instance.new("TextButton", FunctionsPage)
     iyBtn.Size = UDim2.new(0.8, 0, 0, 45)
-    iyBtn.Position = UDim2.new(0.1, 0, 0, (not isSpecialPlace and 220) or 120)
+    iyBtn.Position = UDim2.new(0.1, 0, 0, (not isSpecialPlace and 220) or 170)
     iyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
     iyBtn.Text = "Загрузить Infinite Yield"
     iyBtn.TextColor3 = Color3.new(1,1,1)
@@ -694,10 +757,9 @@ local function CreateGUI()
     end)
     CreateSwitch(FunctionsPage, "Show HUD", function(v) HUDEnabled = v; HudFrame.Visible = v end)
 
-    -- FreeCam (только если не спецплейс)
+    -- FreeCam
     if not isSpecialPlace then
         CreateSwitch(FreeCamPage, "🎥 Free Cam (от первого лица)", function(v) ToggleFreeCam(v) end)
-        -- Ползунок скорости
         local speedSlider = Instance.new("Frame", FreeCamPage)
         speedSlider.Size = UDim2.new(1, -20, 0, 50)
         speedSlider.BackgroundTransparency = 1
@@ -727,7 +789,6 @@ local function CreateGUI()
                 slider.Text = tostring(flySpeed)
             end
         end)
-        -- Чувствительность
         local sensSlider = Instance.new("Frame", FreeCamPage)
         sensSlider.Size = UDim2.new(1, -20, 0, 50)
         sensSlider.Position = UDim2.new(0, 0, 0, 60)
@@ -759,7 +820,6 @@ local function CreateGUI()
             end
         end)
 
-        -- Кнопка телепорта
         local teleBtn = Instance.new("TextButton", FreeCamPage)
         teleBtn.Size = UDim2.new(0.8, 0, 0, 50)
         teleBtn.Position = UDim2.new(0.1, 0, 0, 130)
@@ -777,6 +837,20 @@ local function CreateGUI()
     -- Приколы
     CreateSwitch(JokesPage, "🔞 Шалун (анимация)", function(v) ToggleShaker(v) end)
     CreateSwitch(JokesPage, "🍆 Хуй (прикол)", function(v) ToggleDick(v) end)
+
+    -- Морфы (новая вкладка)
+    local morphBtn = Instance.new("TextButton", MorphPage)
+    morphBtn.Size = UDim2.new(0.8, 0, 0, 60)
+    morphBtn.Position = UDim2.new(0.1, 0, 0, 20)
+    morphBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    morphBtn.Text = "Применить морф\n" .. MORPH_ID
+    morphBtn.TextColor3 = Color3.new(1,1,1)
+    morphBtn.Font = Enum.Font.GothamBold
+    morphBtn.TextSize = 18
+    Instance.new("UICorner", morphBtn).CornerRadius = UDim.new(0, 10)
+    morphBtn.MouseButton1Click:Connect(function()
+        ApplyMorph()
+    end)
 
     -- Бинды
     if not isSpecialPlace then
@@ -934,7 +1008,8 @@ local function CreateGUI()
     addTabBtn("FreeCam", UDim2.new(0.1, 0, 0, 260), FreeCamPage)
     addTabBtn("Троллинг", UDim2.new(0.1, 0, 0, 320), TrollingPage)
     addTabBtn("Приколы", UDim2.new(0.1, 0, 0, 380), JokesPage)
-    addTabBtn("Бинды", UDim2.new(0.1, 0, 0, 440), BindingsPage)
+    addTabBtn("Морфы", UDim2.new(0.1, 0, 0, 440), MorphPage)
+    addTabBtn("Бинды", UDim2.new(0.1, 0, 0, 500), BindingsPage)
 
     -- Горячие клавиши
     UIS.InputBegan:Connect(function(input, gpe)
@@ -949,7 +1024,6 @@ local function CreateGUI()
                 popupFrame = nil
             end
         end
-        -- FreeCam хоткеи (только если не спецплейс)
         if not isSpecialPlace then
             if key == KeyBinds.FreeCamToggle then
                 ToggleFreeCam(not FreeCamEnabled)
@@ -1066,13 +1140,5 @@ LP.CharacterAdded:Connect(function()
     end)
 end)
 
-print("⚡ IMPERIAL UI ЗАГРУЖЕН (FREECAM ОТ ПЕРВОГО ЛИЦА) ⚡")
-if isSpecialPlace then
-    print("🔹 Плейс 93978595733734: Free Cam отключена.")
-else
-    print("🔹 Обычный плейс: Auto Parry, Auto Gen, God Mode скрыты.")
-end
-print("FreeCam: X – вкл/выкл, F – телепорт к камере.")
-print("Регулировка множителя скорости в Movement.")
-print("Скорость сохраняется после смерти.")
+print("⚡ IMPERIAL UI ЗАГРУЖЕН⚡")
 print("Press RightShift - меню")
